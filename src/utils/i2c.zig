@@ -1,7 +1,6 @@
 const std = @import("std");
 const linux = std.os.linux;
 
-const DEV_ADDR = 0x24;
 const I2C_M_RD = 0x0001;
 const I2C_RDWR = 0x0707;
 
@@ -17,27 +16,27 @@ const I2c_rdwr_ioctl_data = extern struct {
     nmsgs: u32,
 };
 
-pub fn i2cWriteReg(fd: std.posix.fd_t, reg_addr: u16, data: [2]u8) !void {
+pub fn i2cWriteReg(fd: std.posix.fd_t, dev_addr: u16, reg_addr: u16, data: [2]u8) !void {
     if (reg_addr > 0xFF) {
-        return i2cWriteRegLarge(fd, reg_addr, data);
+        return i2cWriteRegLarge(fd, dev_addr, reg_addr, data);
     } else {
-        return i2cWriteRegSmall(fd, @intCast(reg_addr), data);
+        return i2cWriteRegSmall(fd, dev_addr, @intCast(reg_addr), data);
     }
 }
 
-pub fn I2cReadReg(fd: std.posix.fd_t, reg_addr: u16) ![2]u8 {
+pub fn I2cReadReg(fd: std.posix.fd_t, dev_addr: u16, reg_addr: u16) ![2]u8 {
     if (reg_addr > 0xFF) {
-        return I2cReadRegLarge(fd, reg_addr);
+        return I2cReadRegLarge(fd, dev_addr, reg_addr);
     } else {
-        return I2cReadRegSmall(fd, @intCast(reg_addr));
+        return I2cReadRegSmall(fd, dev_addr, @intCast(reg_addr));
     }
 }
 
-fn i2cWriteRegLarge(fd: std.posix.fd_t, reg_addr: u16, data: [2]u8) !void {
+fn i2cWriteRegLarge(fd: std.posix.fd_t, dev_addr: u16, reg_addr: u16, data: [2]u8) !void {
     var buf = [_]u8{ @intCast((reg_addr >> 8) | 0b10000000), @intCast(reg_addr & 0xFF), data[0], data[1] };
 
     var msg = I2c_msg{
-        .addr = DEV_ADDR,
+        .addr = dev_addr,
         .flags = 0,
         .len = @intCast(buf.len),
         .buf = &buf,
@@ -54,11 +53,11 @@ fn i2cWriteRegLarge(fd: std.posix.fd_t, reg_addr: u16, data: [2]u8) !void {
     }
 }
 
-fn i2cWriteRegSmall(fd: std.posix.fd_t, reg_addr: u8, data: [2]u8) !void {
+fn i2cWriteRegSmall(fd: std.posix.fd_t, dev_addr: u16, reg_addr: u8, data: [2]u8) !void {
     var buf = [_]u8{ reg_addr, data[0], data[1] };
 
     var msg = I2c_msg{
-        .addr = DEV_ADDR,
+        .addr = dev_addr,
         .flags = 0,
         .len = @intCast(buf.len),
         .buf = &buf,
@@ -75,17 +74,17 @@ fn i2cWriteRegSmall(fd: std.posix.fd_t, reg_addr: u8, data: [2]u8) !void {
     }
 }
 
-fn I2cReadRegLarge(fd: std.posix.fd_t, reg_addr: u16) ![2]u8 {
+fn I2cReadRegLarge(fd: std.posix.fd_t, dev_addr: u16, reg_addr: u16) ![2]u8 {
     var addr_buf = [_]u8{ @intCast((reg_addr >> 8) | 0b10000000), @intCast(reg_addr & 0xFF) };
     var data_buf = [_]u8{ 0, 0 };
 
     var msgs = [_]I2c_msg{ .{
-        .addr = DEV_ADDR,
+        .addr = dev_addr,
         .flags = 0,
         .len = 2,
         .buf = &addr_buf,
     }, .{
-        .addr = DEV_ADDR,
+        .addr = dev_addr,
         .flags = I2C_M_RD,
         .len = 2,
         .buf = &data_buf,
@@ -102,17 +101,17 @@ fn I2cReadRegLarge(fd: std.posix.fd_t, reg_addr: u16) ![2]u8 {
     }
     return data_buf;
 }
-fn I2cReadRegSmall(fd: std.posix.fd_t, reg_addr: u8) ![2]u8 {
+fn I2cReadRegSmall(fd: std.posix.fd_t, dev_addr: u16, reg_addr: u8) ![2]u8 {
     var addr_buf = [_]u8{reg_addr};
     var data_buf = [_]u8{ 0, 0 };
 
     var msgs = [_]I2c_msg{ .{
-        .addr = DEV_ADDR,
+        .addr = dev_addr,
         .flags = 0,
         .len = 1,
         .buf = &addr_buf,
     }, .{
-        .addr = DEV_ADDR,
+        .addr = dev_addr,
         .flags = I2C_M_RD,
         .len = 2,
         .buf = &data_buf,

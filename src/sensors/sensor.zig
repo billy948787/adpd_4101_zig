@@ -10,4 +10,4 @@ pub fn Sensor(comptime T: type) type {
     return T;
 }
 
-pub var ADPDSensor = Sensor(@import("adpd4101.zig").ADPD4101("/dev/i2c-3"));
+pub const ADPD4101Sensor = Sensor(@import("adpd4101.zig").ADPD4101);

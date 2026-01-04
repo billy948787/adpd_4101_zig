@@ -4,7 +4,12 @@ const sensor = @import("sensors/sensor.zig");
 const i2c = @import("utils/i2c.zig");
 
 pub fn main() !void {
-    var adpa_sensor = sensor.ADPDSensor;
+    var adpd4101_sensor = sensor.ADPD4101Sensor.init("/dev/i2c-3") catch |err| {
+        std.debug.print("Failed to initialize ADPD4101 sensor: {}\n", .{err});
+        return err;
+    };
 
-    try adpa_sensor.init();
+    defer adpd4101_sensor.deinit();
+
+    _ = try adpd4101_sensor.read_raw();
 }
