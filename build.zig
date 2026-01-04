@@ -72,16 +72,7 @@ pub fn build(b: *std.Build) void {
             // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
             .optimize = optimize,
-            // List of modules available for import in source files part of the
-            // root module.
-            .imports = &.{
-                // Here "adpd_4101_zig" is the name you will use in your source code to
-                // import this module (e.g. `@import("adpd_4101_zig")`). The name is
-                // repeated because you are allowed to rename your imports, which
-                // can be extremely useful in case of collisions (which can happen
-                // importing modules from different packages).
-                .{ .name = "adpd_4101_zig", .module = mod },
-            },
+
         }),
     });
 
