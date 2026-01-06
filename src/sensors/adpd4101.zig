@@ -9,16 +9,19 @@ pub const ADPD4101 = struct {
 
         const fd = file.handle;
 
-        try set_opmode(fd, SLOT_COUNT, true);
+        try reset_all(fd);
+
         try set_oscillator(fd, .INTERNAL_1MHZ, USE_EXT_CLOCK);
         try set_input(fd);
         try set_led_power(fd, &LED_IDS);
+        try set_opmode(fd, SLOT_COUNT, true);
         return ADPD4101{
             .fd = fd,
         };
     }
 
     pub fn deinit(self: *ADPD4101) void {
+        try reset_all(self.fd);
         std.posix.close(self.fd);
     }
 
@@ -42,8 +45,15 @@ fn set_opmode(fd: std.posix.fd_t, slot_count: u8, is_enable: bool) !void {
     var mode: u16 = if (is_enable) 0b0000_0001 else 0b0000_0000;
 
     mode |= @as(u16, slot_count - 1) << 8;
-    const data = std.mem.toBytes(mode);
+    var data: [2]u8 = undefined;
+    std.mem.writeInt(u16, &data, mode, .big);
+    std.debug.print("Setting OPMODE to {any}\n", .{data});
     try i2c.i2cWriteReg(fd, DEV_ADDR, OPMODE_REG, @as([2]u8, data));
+}
+
+fn reset_all(fd: std.posix.fd_t) !void {
+    const data: [2]u8 = [_]u8{ 0b10000000, 0x00 };
+    try i2c.i2cWriteReg(fd, DEV_ADDR, SYS_CTL_REG, data);
 }
 
 fn set_oscillator(
@@ -56,26 +66,31 @@ fn set_oscillator(
     }
 
     const sys_ctl: u16 = switch (oscillator) {
-        .INTERNAL_1MHZ => 0b0000_0101,
+        .INTERNAL_1MHZ => 0b0000_0110,
         .INTERNAL_32KHZ => 0b0000_0000,
     };
 
-    const data = std.mem.toBytes(sys_ctl);
+    var data: [2]u8 = undefined;
+    std.mem.writeInt(u16, &data, sys_ctl, .big);
+
     try i2c.i2cWriteReg(fd, DEV_ADDR, SYS_CTL_REG, @as([2]u8, data));
 }
 
 // TODO
 fn set_led_power(fd: std.posix.fd_t, led_ids: []const u16) !void {
     _ = led_ids;
-    const value: u16 = 0x0001;
-    const data = std.mem.toBytes(value);
+    const value: u16 = 0x007f;
+    var data: [2]u8 = undefined;
+    std.mem.writeInt(u16, &data, value, .big);
+    std.debug.print("Setting LED power to {x}\n", .{value});
     try i2c.i2cWriteReg(fd, DEV_ADDR, LED_POW12_A_REG, @as([2]u8, data));
 }
 
 // TODO
 fn set_input(fd: std.posix.fd_t) !void {
     const value: u16 = 0b0000_0001;
-    const data = std.mem.toBytes(value);
+    var data: [2]u8 = undefined;
+    std.mem.writeInt(u16, &data, value, .big);
     try i2c.i2cWriteReg(fd, DEV_ADDR, INPUT_A_REG, @as([2]u8, data));
 }
 
