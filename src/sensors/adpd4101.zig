@@ -11,9 +11,10 @@ pub const ADPD4101 = struct {
 
         try reset_all(fd);
 
-        try set_oscillator(fd, .INTERNAL_1MHZ, USE_EXT_CLOCK);
+        try set_oscillator(fd, INTERNAL_OSCILLATOR, USE_EXT_CLOCK);
         try set_input(fd);
         try set_led_power(fd, &LED_IDS);
+        try set_time_slot_freq(fd, INTERNAL_OSCILLATOR, TARGET_HZ);
         try set_opmode(fd, SLOT_COUNT, true);
         return ADPD4101{
             .fd = fd,
@@ -21,7 +22,9 @@ pub const ADPD4101 = struct {
     }
 
     pub fn deinit(self: *ADPD4101) void {
-        try reset_all(self.fd);
+        reset_all(self.fd) catch |err| {
+            std.debug.print("Failed to reset ADPD4101 during deinit: {}\n", .{err});
+        };
         std.posix.close(self.fd);
     }
 
@@ -76,6 +79,27 @@ fn set_oscillator(
     try i2c.i2cWriteReg(fd, DEV_ADDR, SYS_CTL_REG, @as([2]u8, data));
 }
 
+fn set_time_slot_freq(fd: std.posix.fd_t, oscillator: Oscillator, target_hz: u32) !void {
+    const oscillator_freq: u32 = switch (oscillator) {
+        .INTERNAL_1MHZ => 1_000_000,
+        .INTERNAL_32KHZ => 32_768,
+    };
+
+    const ts_freq: u32 = oscillator_freq / target_hz;
+    const low_freq: u16 = @truncate(ts_freq & 0x0000FFFF);
+    const high_freq: u16 = @truncate((ts_freq >> 16) & 0xFFFF);
+
+    std.debug.print("Setting time slot frequency to {any} Hz (low_freq: {x}, high_freq: {x})\n", .{ target_hz, low_freq, high_freq });
+
+    var data: [2]u8 = undefined;
+    std.mem.writeInt(u16, &data, low_freq, .big);
+    std.debug.print("Setting TS_FREQ to {any}\n", .{data});
+    try i2c.i2cWriteReg(fd, DEV_ADDR, TS_FREQ_REG, @as([2]u8, data));
+    std.mem.writeInt(u16, &data, high_freq, .big);
+    std.debug.print("Setting TS_FREQH to {any}\n", .{data});
+    try i2c.i2cWriteReg(fd, DEV_ADDR, TS_FREQH_REG, @as([2]u8, data));
+}
+
 // TODO
 fn set_led_power(fd: std.posix.fd_t, led_ids: []const u16) !void {
     _ = led_ids;
@@ -116,15 +140,20 @@ const USE_EXT_CLOCK: bool = false;
 const LED_IDS = get_led_id(&[_][]const u8{
     "1A",
 });
+const INTERNAL_OSCILLATOR = .INTERNAL_1MHZ;
+const TARGET_HZ: u32 = 1;
 
 // Device I2C Address
 const DEV_ADDR: u8 = 0x24;
 
 // Register Addresses
+// global control registers
 const OPMODE_REG: u16 = 0x0010;
 const SYS_CTL_REG: u16 = 0x000F;
 const FIFO_STATUS_REG: u16 = 0x0000;
 const FIFO_DATA_REG: u16 = 0x002F;
+const TS_FREQ_REG: u16 = 0x000D;
+const TS_FREQH_REG: u16 = 0x000E;
 // LED Power Registers
 const LED_POW12_A_REG: u16 = 0x0105;
 const LED_POW12_B_REG: u16 = 0x0125;
@@ -163,5 +192,56 @@ const INPUT_I_REG: u16 = 0x0202;
 const INPUT_J_REG: u16 = 0x0222;
 const INPUT_K_REG: u16 = 0x0242;
 const INPUT_L_REG: u16 = 0x0262;
+// data format register
+const DATA_FORMAT_A_REG: u16 = 0x0110;
+const DATA_FORMAT_B_REG: u16 = 0x0130;
+const DATA_FORMAT_C_REG: u16 = 0x0150;
+const DATA_FORMAT_D_REG: u16 = 0x0170;
+const DATA_FORMAT_E_REG: u16 = 0x0190;
+const DATA_FORMAT_F_REG: u16 = 0x01B0;
+const DATA_FORMAT_G_REG: u16 = 0x01D0;
+const DATA_FORMAT_H_REG: u16 = 0x01F0;
+const DATA_FORMAT_I_REG: u16 = 0x0210;
+const DATA_FORMAT_J_REG: u16 = 0x0230;
+const DATA_FORMAT_K_REG: u16 = 0x0250;
+const DATA_FORMAT_L_REG: u16 = 0x0270;
+const LIT_DATA_FORMAT_A_REG: u16 = 0x0111;
+const LIT_DATA_FORMAT_B_REG: u16 = 0x0131;
+const LIT_DATA_FORMAT_C_REG: u16 = 0x0151;
+const LIT_DATA_FORMAT_D_REG: u16 = 0x0171;
+const LIT_DATA_FORMAT_E_REG: u16 = 0x0191;
+const LIT_DATA_FORMAT_F_REG: u16 = 0x01B1;
+const LIT_DATA_FORMAT_G_REG: u16 = 0x01D1;
+const LIT_DATA_FORMAT_H_REG: u16 = 0x01F1;
+const LIT_DATA_FORMAT_I_REG: u16 = 0x0211;
+const LIT_DATA_FORMAT_J_REG: u16 = 0x0231;
+const LIT_DATA_FORMAT_K_REG: u16 = 0x0251;
+const LIT_DATA_FORMAT_L_REG: u16 = 0x0271;
 
 const Oscillator = enum { INTERNAL_1MHZ, INTERNAL_32KHZ };
+
+// struct definitions
+const TimeSlot = struct {
+    leds: []const Led,
+    data_format: DataFormat,
+    led_pulse: LedPulse,
+};
+
+const DataFormat = struct {
+    dark_shift: u8 = 0x0,
+    dark_size: u8 = 0x0,
+    lit_shift: u8 = 0x0,
+    lit_size: u8 = 0x3,
+    sig_shift: u8 = 0x0,
+    sig_size: u8 = 0x3,
+};
+
+const Led = struct {
+    id: u16,
+    current: u16,
+};
+
+const LedPulse = struct {
+    pulse_width_us: u16 = 0x2,
+    pulse_offset_us: u16 = 0x10,
+};
