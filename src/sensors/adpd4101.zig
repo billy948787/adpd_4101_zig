@@ -18,10 +18,6 @@ pub const ADPD4101 = struct {
         try reset_all(fd);
 
         try set_oscillator(fd, oscillator, use_ext_clock);
-        try set_led_power(
-            fd,
-            timeslots,
-        );
         inline for (timeslots) |ts| {
             try config_time_slot(fd, ts);
         }
@@ -91,10 +87,22 @@ fn set_oscillator(
 }
 
 fn config_time_slot(fd: std.posix.fd_t, slot: TimeSlot) !void {
-    const target_reg = INPUT_A_REG + (slot.id[0] - 'A');
-
-    var value: u16 = 0;
-
+    const input_target_reg = INPUT_A_REG + (slot.id[0] - 'A') * 0x20;
+    const ts_ctrl_target_reg = TS_CTRL_A_REG + (slot.id[0] - 'A') * 0x20;
+    const data_format_target_reg = DATA_FORMAT_A_REG + (slot.id[0] - 'A') * 0x20;
+    const lit_data_format_target_reg = LIT_DATA_FORMAT_A_REG + (slot.id[0] - 'A') * 0x20;
+    const mod_pulse_target_reg = MOD_PULSE_A_REG + (slot.id[0] - 'A') * 0x20;
+    const led_pow12_target_reg = LED_POW12_A_REG + (slot.id[0] - 'A') * 0x20;
+    const led_pow34_target_reg = LED_POW34_A_REG + (slot.id[0] - 'A') * 0x20;
+    var input_value: u16 = 0;
+    var ts_ctrl_value: u16 = 0;
+    var data_format_value: u16 = 0;
+    var lit_data_format_value: u16 = 0;
+    var mod_pulse_value: u16 = 0;
+    var led_pow12_value: u16 = 0;
+    var led_pow34_value: u16 = 0;
+    // buffer
+    var data: [2]u8 = undefined;
     // channel1
     if (slot.input_pds[0]) |pd| {
         const offset: u4 = if (pd.id % 2 == 0)
@@ -104,7 +112,7 @@ fn config_time_slot(fd: std.posix.fd_t, slot: TimeSlot) !void {
 
         const shift_amout: u4 = @intCast(((pd.id - 1) / 2) * 4 + offset);
 
-        value |= @as(u16, 0x1) << shift_amout;
+        input_value |= @as(u16, 0x1) << shift_amout;
     }
 
     // channel2
@@ -114,16 +122,64 @@ fn config_time_slot(fd: std.posix.fd_t, slot: TimeSlot) !void {
         else
             @as(u4, 1);
         const shift_amout: u4 = @intCast(((pd.id - 1) / 2) * 4 + offset);
-        value |= @as(u16, 0x1) << shift_amout;
+        input_value |= @as(u16, 0x1) << shift_amout;
+        // need to enable the 2nd channel
+        ts_ctrl_value |= 0b0100_0000_0000_0000;
     }
 
-    std.debug.print("value binary: {b}\n", .{value});
+    std.debug.print("value binary: {b}\n", .{input_value});
 
-    var data: [2]u8 = undefined;
-    std.mem.writeInt(u16, &data, value, .big);
+    std.mem.writeInt(u16, &data, input_value, .big);
     std.debug.print("Setting INPUT_{s} to {x}\n", .{ slot
-        .id, value });
-    try i2c.i2cWriteReg(fd, DEV_ADDR, target_reg, @as([2]u8, data));
+        .id, input_value });
+    try i2c.i2cWriteReg(fd, DEV_ADDR, input_target_reg, @as([2]u8, data));
+    std.mem.writeInt(u16, &data, ts_ctrl_value, .big);
+    std.debug.print("Setting TS_CTRL_{s} to {x}\n", .{ slot.id, ts_ctrl_value });
+    try i2c.i2cWriteReg(fd, DEV_ADDR, ts_ctrl_target_reg, @as([2]u8, data));
+
+    data_format_value |= @as(u16, slot.data_format.dark_shift & 0x0F) << 11;
+    data_format_value |= @as(u16, slot.data_format.dark_size & 0x03) << 8;
+    data_format_value |= @as(u16, slot.data_format.sig_shift & 0x0F) << 3;
+    data_format_value |= @as(u16, slot.data_format.sig_size & 0x03);
+
+    std.mem.writeInt(u16, &data, data_format_value, .big);
+    std.debug.print("Setting DATA_FORMAT_{s} to {b}\n", .{ slot.id, data_format_value });
+    try i2c.i2cWriteReg(fd, DEV_ADDR, data_format_target_reg, @as([2]u8, data));
+
+    lit_data_format_value |= (slot.data_format.lit_shift & 0x0F) << 3;
+    lit_data_format_value |= (slot.data_format.lit_size & 0x03);
+
+    std.mem.writeInt(u16, &data, lit_data_format_value, .big);
+    std.debug.print("Setting LIT_DATA_FORMAT_{s} to {b}\n", .{ slot.id, lit_data_format_value });
+    try i2c.i2cWriteReg(fd, DEV_ADDR, lit_data_format_target_reg, @as([2]u8, data));
+
+    mod_pulse_value |= (slot.led_pulse.pulse_width_us & 0xFF) << 8;
+    mod_pulse_value |= (slot.led_pulse.pulse_offset_us & 0xFF);
+
+    std.mem.writeInt(u16, &data, mod_pulse_value, .big);
+    std.debug.print("Setting MOD_PULSE_{s} to {b}\n", .{ slot.id, mod_pulse_value });
+    try i2c.i2cWriteReg(fd, DEV_ADDR, mod_pulse_target_reg, @as([2]u8, data));
+
+    // configure LED power
+    for (slot.leds) |led| {
+        std.debug.print("Configuring LED ID {d} with current {d}\n", .{ led.id, led.current });
+        if (led.id < 4) {
+            const shift: u4 = @intCast((led.id / 2) * 8);
+            led_pow12_value |= (led.current & 0x7F) << shift;
+            led_pow12_value |= @as(u16, @intFromBool(led.id % 2 != 0)) << (shift + 7);
+        } else {
+            const shift: u4 = @intCast(((led.id - 4) / 2) * 8);
+            led_pow34_value |= (led.current & 0x7F) << shift;
+            led_pow34_value |= @as(u16, @intFromBool(led.id % 2 != 0)) << (shift + 7);
+        }
+    }
+
+    std.mem.writeInt(u16, &data, led_pow12_value, .big);
+    std.debug.print("Setting LED_POW12_{s} to {b}\n", .{ slot.id, led_pow12_value });
+    try i2c.i2cWriteReg(fd, DEV_ADDR, led_pow12_target_reg, @as([2]u8, data));
+    std.mem.writeInt(u16, &data, led_pow34_value, .big);
+    std.debug.print("Setting LED_POW34_{s} to {b}\n", .{ slot.id, led_pow34_value });
+    try i2c.i2cWriteReg(fd, DEV_ADDR, led_pow34_target_reg, @as([2]u8, data));
 }
 
 fn set_time_slot_freq(fd: std.posix.fd_t, oscillator: Oscillator, target_hz: u32) !void {
@@ -145,16 +201,6 @@ fn set_time_slot_freq(fd: std.posix.fd_t, oscillator: Oscillator, target_hz: u32
     std.mem.writeInt(u16, &data, high_freq, .big);
     std.debug.print("Setting TS_FREQH to {any}\n", .{data});
     try i2c.i2cWriteReg(fd, DEV_ADDR, TS_FREQH_REG, @as([2]u8, data));
-}
-
-// TODO
-fn set_led_power(fd: std.posix.fd_t, time_slots: []const TimeSlot) !void {
-    _ = time_slots;
-    const value: u16 = 0x007f;
-    var data: [2]u8 = undefined;
-    std.mem.writeInt(u16, &data, value, .big);
-    std.debug.print("Setting LED power to {x}\n", .{value});
-    try i2c.i2cWriteReg(fd, DEV_ADDR, LED_POW12_A_REG, @as([2]u8, data));
 }
 
 // compile time function to get LED ID from name
@@ -224,6 +270,32 @@ const INPUT_I_REG: u16 = 0x0202;
 const INPUT_J_REG: u16 = 0x0222;
 const INPUT_K_REG: u16 = 0x0242;
 const INPUT_L_REG: u16 = 0x0262;
+// ts ctrl register
+const TS_CTRL_A_REG: u16 = 0x0100;
+const TS_CTRL_B_REG: u16 = 0x0120;
+const TS_CTRL_C_REG: u16 = 0x0140;
+const TS_CTRL_D_REG: u16 = 0x0160;
+const TS_CTRL_E_REG: u16 = 0x0180;
+const TS_CTRL_F_REG: u16 = 0x01A0;
+const TS_CTRL_G_REG: u16 = 0x01C0;
+const TS_CTRL_H_REG: u16 = 0x01E0;
+const TS_CTRL_I_REG: u16 = 0x0200;
+const TS_CTRL_J_REG: u16 = 0x0220;
+const TS_CTRL_K_REG: u16 = 0x0240;
+const TS_CTRL_L_REG: u16 = 0x0260;
+// ts pulse register
+const MOD_PULSE_A_REG: u16 = 0x010C;
+const MOD_PULSE_B_REG: u16 = 0x012C;
+const MOD_PULSE_C_REG: u16 = 0x014C;
+const MOD_PULSE_D_REG: u16 = 0x016C;
+const MOD_PULSE_E_REG: u16 = 0x018C;
+const MOD_PULSE_F_REG: u16 = 0x01AC;
+const MOD_PULSE_G_REG: u16 = 0x01CC;
+const MOD_PULSE_H_REG: u16 = 0x01EC;
+const MOD_PULSE_I_REG: u16 = 0x020C;
+const MOD_PULSE_J_REG: u16 = 0x022C;
+const MOD_PULSE_K_REG: u16 = 0x024C;
+const MOD_PULSE_L_REG: u16 = 0x026C;
 // data format register
 const DATA_FORMAT_A_REG: u16 = 0x0110;
 const DATA_FORMAT_B_REG: u16 = 0x0130;
