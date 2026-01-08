@@ -18,11 +18,9 @@ pub const time_slots = [_]adpd.TimeSlot{
         .led_pulse = .{}, // default
         .input_pds = [2]?adpd.PD{
             .{
-                .id = 4,
-            },
-            .{
                 .id = 1,
             },
+            null,
         },
     },
 };

@@ -166,11 +166,11 @@ fn config_time_slot(fd: std.posix.fd_t, slot: TimeSlot) !void {
         if (led.id < 4) {
             const shift: u4 = @intCast((led.id / 2) * 8);
             led_pow12_value |= (led.current & 0x7F) << shift;
-            led_pow12_value |= @as(u16, @intFromBool(led.id % 2 != 0)) << (shift + 7);
+            led_pow12_value |= @as(u16, led.id % 2) << (shift + 7);
         } else {
             const shift: u4 = @intCast(((led.id - 4) / 2) * 8);
             led_pow34_value |= (led.current & 0x7F) << shift;
-            led_pow34_value |= @as(u16, @intFromBool(led.id % 2 != 0)) << (shift + 7);
+            led_pow34_value |= @as(u16, led.id % 2) << (shift + 7);
         }
     }
 
