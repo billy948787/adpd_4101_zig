@@ -3,19 +3,30 @@ const std = @import("std");
 
 pub const ADPD4101 = struct {
     fd: std.posix.fd_t,
+    timeslots: []const TimeSlot,
+    oscillator: Oscillator,
+    timeslot_freq_hz: u32,
 
-    pub fn init(i2c_bus_path: []const u8) !ADPD4101 {
+    pub fn init(
+        i2c_bus_path: []const u8,
+        oscillator: Oscillator,
+        timeslot_freq_hz: u32,
+        timeslots: []const TimeSlot,
+    ) !ADPD4101 {
         const file = try std.fs.cwd().openFile(i2c_bus_path, .{ .mode = .read_write });
 
         const fd = file.handle;
 
         try reset_all(fd);
 
-        try set_oscillator(fd, INTERNAL_OSCILLATOR, USE_EXT_CLOCK);
+        try set_oscillator(fd, oscillator, null);
         try set_input(fd);
-        try set_led_power(fd, &LED_IDS);
-        try set_time_slot_freq(fd, INTERNAL_OSCILLATOR, TARGET_HZ);
-        try set_opmode(fd, SLOT_COUNT, true);
+        try set_led_power(
+            fd,
+            timeslots,
+        );
+        try set_time_slot_freq(fd, oscillator, timeslot_freq_hz);
+        try set_opmode(fd, @intCast(timeslots.len), true);
         return ADPD4101{
             .fd = fd,
         };
@@ -101,8 +112,8 @@ fn set_time_slot_freq(fd: std.posix.fd_t, oscillator: Oscillator, target_hz: u32
 }
 
 // TODO
-fn set_led_power(fd: std.posix.fd_t, led_ids: []const u16) !void {
-    _ = led_ids;
+fn set_led_power(fd: std.posix.fd_t, time_slots: []const TimeSlot) !void {
+    _ = time_slots;
     const value: u16 = 0x007f;
     var data: [2]u8 = undefined;
     std.mem.writeInt(u16, &data, value, .big);
@@ -134,15 +145,6 @@ fn get_led_id(comptime names: []const []const u8) [names.len]u16 {
         return result;
     }
 }
-// ADPD4101 Constants
-const SLOT_COUNT: u8 = 1;
-const USE_EXT_CLOCK: bool = false;
-const LED_IDS = get_led_id(&[_][]const u8{
-    "1A",
-});
-const INTERNAL_OSCILLATOR = .INTERNAL_1MHZ;
-const TARGET_HZ: u32 = 1;
-
 // Device I2C Address
 const DEV_ADDR: u8 = 0x24;
 
@@ -221,13 +223,14 @@ const LIT_DATA_FORMAT_L_REG: u16 = 0x0271;
 const Oscillator = enum { INTERNAL_1MHZ, INTERNAL_32KHZ };
 
 // struct definitions
-const TimeSlot = struct {
+pub const TimeSlot = struct {
+    id: []const u8,
     leds: []const Led,
     data_format: DataFormat,
     led_pulse: LedPulse,
 };
 
-const DataFormat = struct {
+pub const DataFormat = struct {
     dark_shift: u8 = 0x0,
     dark_size: u8 = 0x0,
     lit_shift: u8 = 0x0,
@@ -236,12 +239,12 @@ const DataFormat = struct {
     sig_size: u8 = 0x3,
 };
 
-const Led = struct {
+pub const Led = struct {
     id: u16,
     current: u16,
 };
 
-const LedPulse = struct {
+pub const LedPulse = struct {
     pulse_width_us: u16 = 0x2,
     pulse_offset_us: u16 = 0x10,
 };
