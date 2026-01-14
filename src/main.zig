@@ -3,6 +3,8 @@ const linux = @import("std").os.linux;
 const sensor = @import("sensors/sensor.zig");
 const i2c = @import("utils/i2c.zig");
 const adpd_config = @import("sensors/adpd4101_config.zig");
+const gpio = @import("utils/gpio.zig");
+const constant = @import("constant.zig");
 
 var should_exit = std.atomic.Value(bool).init(false);
 
@@ -21,6 +23,7 @@ pub fn main() !void {
 
     var adpd4101_sensor = sensor.ADPD4101Sensor.init(
         adpd_config.i2c_device_path,
+        adpd_config.device_address,
         adpd_config.oscillator,
         adpd_config.timeslot_freq_hz,
         &adpd_config.time_slots,
@@ -32,12 +35,17 @@ pub fn main() !void {
 
     defer adpd4101_sensor.deinit();
 
+    var interrupt_gpio = try gpio.GPIO.init(constant.interrupt_gpio_pin_id);
+    defer interrupt_gpio.deinit() catch |err| {
+        std.debug.print("Failed to deinit GPIO: {}\n", .{err});
+    };
+
     var read_buffer: [1024]u8 = undefined;
     while (!should_exit.load(.seq_cst)) {
+        try interrupt_gpio.waitForInterrupt();
         const bytes_read = try adpd4101_sensor.read_raw(&read_buffer);
-        if (bytes_read > 0) {
-            std.debug.print("Read data {any} bytes: \n", .{bytes_read});
-        }
+
+        std.debug.print("Read data {any} bytes: \n", .{bytes_read});
     }
 
     // const file = try std.fs.cwd().openFile("/dev/i2c-3", .{ .mode = .read_write });
