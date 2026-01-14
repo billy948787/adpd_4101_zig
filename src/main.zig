@@ -43,9 +43,9 @@ pub fn main() !void {
     var read_buffer: [1024]u8 = undefined;
     while (!should_exit.load(.seq_cst)) {
         try interrupt_gpio.waitForInterrupt();
-        const bytes_read = try adpd4101_sensor.read_raw(&read_buffer);
+        _ = try adpd4101_sensor.read_raw(&read_buffer);
 
-        std.debug.print("Read data {any} bytes: \n", .{bytes_read});
+        // std.debug.print("Read data {any} bytes: \n", .{bytes_read});
     }
 
     // const file = try std.fs.cwd().openFile("/dev/i2c-3", .{ .mode = .read_write });

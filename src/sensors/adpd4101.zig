@@ -42,12 +42,14 @@ pub const ADPD4101 = struct {
     pub fn read_raw(self: *const ADPD4101, out_buf: []u8) !usize {
         // get fifo status
         const status = try i2c.I2cReadReg(self.fd, self.dev_addr, FIFO_STATUS_REG);
-        const fifo_size = std.mem.readInt(u16, &status, .little) & 0b0000_0111_1111_1111;
+        std.debug.print("FIFO_STATUS_REG: {any}\n", .{status});
+        const fifo_size: u16 = std.mem.readInt(u16, &status, .big) & 0b0000_0111_1111_1111;
+        std.debug.print("FIFO size: {d}\n", .{fifo_size});
         if (fifo_size == 0) {
             return 0;
         }
 
-        const to_read: usize = @min(@as(usize, fifo_size) * 4, out_buf.len);
+        const to_read: usize = @min(@as(usize, fifo_size), out_buf.len);
 
         try i2c.i2cKeepReadReg(self.fd, self.dev_addr, FIFO_DATA_REG, out_buf[0..to_read]);
 
@@ -68,7 +70,7 @@ fn set_opmode(fd: std.posix.fd_t, dev_addr: u8, slot_count: u8, is_enable: bool)
 fn set_interrupt(fd: std.posix.fd_t, dev_addr: u8, gpio_id: u32) !void {
     var data: [2]u8 = undefined;
     // set interrupt threshold for fifo
-    const fifo_threshold: u16 = 0x14;
+    const fifo_threshold: u16 = 256;
     std.mem.writeInt(u16, &data, fifo_threshold, .big);
     try i2c.i2cWriteReg(fd, dev_addr, FIFO_TH_REG, @as([2]u8, data));
 
