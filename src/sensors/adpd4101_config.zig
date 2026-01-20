@@ -24,15 +24,13 @@ pub const time_slots = [_]adpd.TimeSlot{
         .led_pulse = .{
             .pulse_width_us = 0x1,
         }, // default
-        .input_pds = [2]?adpd.PD{
-            .{
-                .id = 1,
-            },
-            null,
+        .input_config = .{
+            .pair_12 = .IN1_Ch1,
         },
         .counts = .{
             .num_integrations = 0x8,
             .num_repeats = 0x1,
         },
+        .mod_pulse = .{},
     },
 };
