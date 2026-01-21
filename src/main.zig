@@ -53,13 +53,13 @@ fn process_data_queue() void {
                         signal_value = @as(u32, signal_data_raw[0]);
                     },
                     2 => {
-                        signal_value = @as(u32, signal_data_raw[0]) | (@as(u32, signal_data_raw[1]) << 8);
+                        signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]);
                     },
                     3 => {
-                        signal_value = (@as(u32, signal_data_raw[1]) << 8) | @as(u32, signal_data_raw[0]) | (@as(u32, signal_data_raw[2]) << 16);
+                        signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 16);
                     },
                     4 => {
-                        signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 16) | (@as(u32, signal_data_raw[3]) << 24);
+                        signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 24) | (@as(u32, signal_data_raw[3]) << 16);
                     },
                     else => {
                         unreachable;
