@@ -285,6 +285,22 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     };
     std.mem.writeInt(u16, &data, @bitCast(counts_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, counts_target_reg, @as([2]u8, data));
+
+    // configure cathode
+    const cathode_target_reg = CATHODE_A_REG + (slot.id[0] - 'A') * 0x20;
+    const cathode_reg = regs.CathodeReg{
+        .vc1_select = @intFromEnum(slot.cathode.vc1_select),
+        .vc1_alternate = @intFromEnum(slot.cathode.vc1_alternate),
+        .vc2_select = @intFromEnum(slot.cathode.vc2_select),
+        .vc2_alternate = @intFromEnum(slot.cathode.vc2_alternate),
+        .precondition = @intFromEnum(slot.cathode.precondition),
+        .vc1_pulse_control = @intFromEnum(slot.cathode.vc1_pulse_control),
+        .vc2_pulse_control = @intFromEnum(slot.cathode.vc2_pulse_control),
+        .reserved = 0,
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(cathode_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, cathode_target_reg, @as([2]u8, data));
 }
 
 fn set_time_slot_freq(fd: std.posix.fd_t, dev_addr: u8, oscillator: Oscillator, target_hz: u32) !void {
@@ -440,6 +456,19 @@ const COUNTS_I_REG: u16 = 0x0207;
 const COUNTS_J_REG: u16 = 0x0227;
 const COUNTS_K_REG: u16 = 0x0247;
 const COUNTS_L_REG: u16 = 0x0267;
+// cathode register
+const CATHODE_A_REG: u16 = 0x0103;
+const CATHODE_B_REG: u16 = 0x0123;
+const CATHODE_C_REG: u16 = 0x0143;
+const CATHODE_D_REG: u16 = 0x0163;
+const CATHODE_E_REG: u16 = 0x0183;
+const CATHODE_F_REG: u16 = 0x01A3;
+const CATHODE_G_REG: u16 = 0x01C3;
+const CATHODE_H_REG: u16 = 0x01E3;
+const CATHODE_I_REG: u16 = 0x0203;
+const CATHODE_J_REG: u16 = 0x0223;
+const CATHODE_K_REG: u16 = 0x0243;
+const CATHODE_L_REG: u16 = 0x0263;
 // gpio register
 const GPIO_CFG_REG: u16 = 0x0022;
 const GPIO_01_REG: u16 = 0x0023;
@@ -456,6 +485,7 @@ pub const TimeSlot = struct {
     led_pulse: LedPulse,
     input_config: InputConfig,
     mod_pulse: ModPulse,
+    cathode: Cathode,
 };
 
 pub const InputPairMode = enum(u4) {
@@ -489,6 +519,39 @@ pub const DataFormat = struct {
 pub const Counts = struct {
     num_integrations: u16 = 0x1,
     num_repeats: u16 = 0x1,
+};
+
+pub const Cathode = struct {
+    vc1_select: VCState = .VDD,
+    vc1_alternate: VCState = .VDD,
+    vc2_select: VCState = .VDD,
+    vc2_alternate: VCState = .VDD,
+    precondition: Precondition = .FLOAT,
+    vc1_pulse_control: PulseControl = .NO_PULSING,
+    vc2_pulse_control: PulseControl = .NO_PULSING,
+};
+
+pub const Precondition = enum(u3) {
+    FLOAT = 0b000,
+    VC1 = 0b001,
+    VC2 = 0b010,
+    VICM = 0b011,
+    TIA = 0b100,
+    TIA_VREF = 0b101,
+    SHORTED_DIFF_PAIR = 0b110,
+};
+
+pub const VCState = enum(u2) {
+    VDD = 0b00,
+    TIA_VREF = 0b01,
+    TIA_VREF_PLUS_215mV = 0b10,
+    GND,
+};
+
+pub const PulseControl = enum(u2) {
+    NO_PULSING = 0b00,
+    ALTERNATE_EACH_TIMESLOT = 0b01,
+    PULSE_TO_ALTERNATE_WITH_MOD = 0b10,
 };
 
 pub const Led = struct {

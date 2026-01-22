@@ -95,3 +95,14 @@ pub const TimeslowFreqHighReg = packed struct(u16) {
     timeslot_frequency_high: u7,
     reserved: u9,
 };
+
+pub const CathodeReg = packed struct(u16) {
+    vc1_select: u2,
+    vc1_alternate: u2,
+    vc1_pulse_control: u2,
+    vc2_select: u2,
+    vc2_alternate: u2,
+    vc2_pulse_control: u2,
+    precondition: u3,
+    reserved: u1,
+};
