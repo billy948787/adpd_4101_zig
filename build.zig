@@ -72,9 +72,15 @@ pub fn build(b: *std.Build) void {
             // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
             .optimize = optimize,
-
         }),
     });
+
+    const dbus = b.dependency("dbus", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe.root_module.addImport("dbus", dbus.module("dbus"));
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default

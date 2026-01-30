@@ -5,6 +5,7 @@ const i2c = @import("utils/i2c.zig");
 const adpd_config = @import("sensors/adpd4101_config.zig");
 const gpio = @import("utils/gpio.zig");
 const constant = @import("constant.zig");
+const bluetooth = @import("bluetooth.zig");
 
 var queue_mutex = std.Thread.Mutex{};
 
@@ -153,27 +154,13 @@ pub fn main() !void {
     defer interrupt_gpio.deinit() catch |err| {
         stderr.print("Failed to deinitialize GPIO: {}\n", .{err}) catch {};
     };
-    // while (!should_exit.load(.seq_cst)) {
-    //     try interrupt_gpio.waitForInterrupt();
-    //     const read_data = try adpd4101_sensor.read_raw();
 
-    //     queue_mutex.lock();
+    // const data_thread = try std.Thread.spawn(.{}, read_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
+    // defer data_thread.join();
+    // const process_thread = try std.Thread.spawn(.{}, process_data_queue, .{});
+    // defer process_thread.join();
 
-    //     data_queue.append(allocator, read_data) catch |err| {
-    //         // std.debug.print("Error appending data to queue: {}\n", .{err});
-    //     };
-    // }
+    var bt = try bluetooth.Bluetooth.init();
 
-    const data_thread = try std.Thread.spawn(.{}, read_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
-    defer data_thread.join();
-    const process_thread = try std.Thread.spawn(.{}, process_data_queue, .{});
-    defer process_thread.join();
-
-    // const file = try std.fs.cwd().openFile("/dev/i2c-3", .{ .mode = .read_write });
-
-    // const data: [2]u8 = [_]u8{ 0x12, 0x34 };
-
-    // try i2c.i2cWriteReg(file.handle, 0x24, 0x0D, data);
-    // const result = try i2c.I2cReadReg(file.handle, 0x24, 0x0D);
-    // // std.debug.print("Read data: {x}\n", .{result});
+    try bt.introspect();
 }
