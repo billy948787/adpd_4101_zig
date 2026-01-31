@@ -5,13 +5,15 @@ const i2c = @import("utils/i2c.zig");
 const adpd_config = @import("sensors/adpd4101_config.zig");
 const gpio = @import("utils/gpio.zig");
 const constant = @import("constant.zig");
-const bluetooth = @import("bluetooth.zig");
+const bluetooth_output = @import("output/bluetooth.zig");
 
 var queue_mutex = std.Thread.Mutex{};
+var processed_data_queue_mutex = std.Thread.Mutex{};
 
 var should_exit = std.atomic.Value(bool).init(false);
 var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
 var data_queue: std.ArrayList(u8) = undefined;
+var processed_data_queue: std.ArrayList(ProcessedData) = undefined;
 
 var stdout_buffer: [1024]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
@@ -24,6 +26,35 @@ const stderr = &stderr_writer.interface;
 fn handle_signal(signum: c_int) callconv(.c) void {
     _ = signum;
     should_exit.store(true, .seq_cst);
+}
+
+fn send_data() void {
+    var bt_output = bluetooth_output.BluetoothClassicOutput.init() catch |err| {
+        stderr.print("Error initializing Bluetooth output: {}\n", .{err}) catch {};
+        return;
+    };
+    defer bt_output.deinit() catch |err| {
+        stderr.print("Error deinitializing Bluetooth output: {}\n", .{err}) catch {};
+    };
+
+    while (!should_exit.load(.seq_cst)) {
+        processed_data_queue_mutex.lock();
+        if (processed_data_queue.items.len > 0) {
+            const data = processed_data_queue.items;
+            for (data) |item| {
+                var buffer: [64]u8 = undefined;
+                const written = std.fmt.bufPrint(&buffer, "{d},{d}\n", .{ item.ppg_value, item.timestamp_ms }) catch |err| {
+                    stderr.print("Error formatting data for Bluetooth: {}\n", .{err}) catch {};
+                    continue;
+                };
+                bt_output.write(written) catch |err| {
+                    stderr.print("Error sending data over Bluetooth: {}\n", .{err}) catch {};
+                };
+            }
+            processed_data_queue.clearRetainingCapacity();
+        }
+        processed_data_queue_mutex.unlock();
+    }
 }
 
 fn process_data_queue() void {
@@ -74,9 +105,18 @@ fn process_data_queue() void {
                 const casted_value: i64 = @intCast(signal_value);
                 const timestamp = std.time.milliTimestamp();
 
-                stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
-                    stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
+                // stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
+                //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
+                // };
+
+                processed_data_queue_mutex.lock();
+                processed_data_queue.append(gpa.allocator(), ProcessedData{
+                    .ppg_value = casted_value - 8192,
+                    .timestamp_ms = @intCast(timestamp),
+                }) catch |err| {
+                    stderr.print("Error appending processed data: {}\n", .{err}) catch {};
                 };
+                processed_data_queue_mutex.unlock();
 
                 data_index += size;
                 current_slot_index = (current_slot_index + 1) % adpd_config.time_slots.len;
@@ -134,6 +174,9 @@ pub fn main() !void {
     data_queue = try std.ArrayList(u8).initCapacity(allocator, 1024);
     defer data_queue.deinit(allocator);
 
+    processed_data_queue = try std.ArrayList(ProcessedData).initCapacity(allocator, 1024);
+    defer processed_data_queue.deinit(allocator);
+
     var adpd4101_sensor = sensor.ADPD4101Sensor.init(
         adpd_config.i2c_device_path,
         adpd_config.device_address,
@@ -155,12 +198,19 @@ pub fn main() !void {
         stderr.print("Failed to deinitialize GPIO: {}\n", .{err}) catch {};
     };
 
-    // const data_thread = try std.Thread.spawn(.{}, read_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
-    // defer data_thread.join();
-    // const process_thread = try std.Thread.spawn(.{}, process_data_queue, .{});
-    // defer process_thread.join();
+    const data_thread = try std.Thread.spawn(.{}, read_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
+    defer data_thread.join();
+    const process_thread = try std.Thread.spawn(.{}, process_data_queue, .{});
+    defer process_thread.join();
+    const bluetooth_thread = try std.Thread.spawn(.{}, send_data, .{});
+    defer bluetooth_thread.join();
 
-    var bt = try bluetooth.Bluetooth.init();
-
-    try bt.introspect();
+    while (!should_exit.load(.seq_cst)) {
+        std.Thread.sleep(100 * std.time.ns_per_ms);
+    }
 }
+
+const ProcessedData = struct {
+    ppg_value: i64,
+    timestamp_ms: u64,
+};
