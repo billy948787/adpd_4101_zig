@@ -18,12 +18,12 @@ pub const BluetoothClassicOutput = struct {
         try std.posix.bind(server_socket_fd, @ptrCast(&loc_addr), @sizeOf(sockaddr_rc));
 
         try std.posix.listen(server_socket_fd, 1);
-
+        std.debug.print("Bluetooth server listening on channel 1, waiting for connection...\n", .{});
         // Accept a connection
         var client_addr: sockaddr_rc = undefined;
         var optlen: std.os.linux.socklen_t = @sizeOf(sockaddr_rc);
         const client_fd = try std.posix.accept(server_socket_fd, @ptrCast(&client_addr), &optlen, 0);
-
+        std.debug.print("Bluetooth client connected!\n", .{});
         return BluetoothClassicOutput{
             .server_socket_fd = server_socket_fd,
             .client_socket_fd = client_fd,

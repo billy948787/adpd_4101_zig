@@ -49,6 +49,8 @@ fn send_data() void {
                 };
                 bt_output.write(written) catch |err| {
                     stderr.print("Error sending data over Bluetooth: {}\n", .{err}) catch {};
+                    // end the whole program
+                    should_exit.store(true, .seq_cst);
                 };
             }
             processed_data_queue.clearRetainingCapacity();
