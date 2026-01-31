@@ -13,8 +13,10 @@ pub const BluetoothClassicOutput = struct {
 
         loc_addr.rc_family = std.os.linux.AF.BLUETOOTH;
         loc_addr.rc_bdaddr = bdaddr_t{ .b = [_]u8{0} ** 6 };
-        loc_addr.rc_channel = 1;
 
+        const enable: i32 = 1;
+        loc_addr.rc_channel = 1;
+        try std.posix.setsockopt(server_socket_fd, std.os.linux.SOL.SOCKET, std.os.linux.SO.REUSEADDR, std.mem.asBytes(&enable));
         try std.posix.bind(server_socket_fd, @ptrCast(&loc_addr), @sizeOf(sockaddr_rc));
 
         try std.posix.listen(server_socket_fd, 1);
