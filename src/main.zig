@@ -84,10 +84,6 @@ fn process_data_queue() void {
 
     var sensor_active = true;
 
-    const allocator = gpa.allocator();
-    var local_data_queue = std.ArrayList(u8).initCapacity(allocator, 1024);
-    defer local_data_queue.deinit(allocator);
-
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
             if (sensor_active) {
@@ -103,6 +99,7 @@ fn process_data_queue() void {
             }
         }
         queue_mutex.lock();
+        defer queue_mutex.unlock();
 
         if (raw_data_queue.items.len > 0) {
             const data = raw_data_queue.items;
@@ -158,15 +155,18 @@ fn process_data_queue() void {
                 current_slot_index = (current_slot_index + 1) % adpd_config.time_slots.len;
             }
 
-            stdout.flush() catch |err| {
-                stderr.print("Error flushing stdout: {}\n", .{err}) catch {};
-            };
-
             raw_data_queue.replaceRange(gpa.allocator(), 0, data_index, &[_]u8{}) catch |err| {
                 stderr.print("Error removing processed data from queue: {}\n", .{err}) catch {};
             };
+
+            stderr.flush() catch |err| {
+                stderr.print("Error flushing stderr: {}\n", .{err}) catch {};
+            };
+
+            stdout.flush() catch |err| {
+                stderr.print("Error flushing stdout: {}\n", .{err}) catch {};
+            };
         }
-        queue_mutex.unlock();
     }
 }
 
@@ -204,13 +204,15 @@ fn read_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPI
         }
 
         queue_mutex.lock();
+        defer queue_mutex.unlock();
         // for (read_data) |byte| {
         //     data_queue.append(gpa.allocator(), byte) catch |err| {
         //         stderr.print("Error appending data to queue: {}\n", .{err}) catch {};
         //     };
         // }
-        try raw_data_queue.appendSlice(gpa.allocator(), read_data);
-        queue_mutex.unlock();
+        raw_data_queue.appendSlice(gpa.allocator(), read_data) catch |err| {
+            stderr.print("Error appending read data to queue: {}\n", .{err}) catch {};
+        };
     }
 }
 
