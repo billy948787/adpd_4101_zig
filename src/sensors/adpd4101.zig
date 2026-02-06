@@ -36,6 +36,14 @@ pub const ADPD4101 = struct {
         };
     }
 
+    pub fn disable(self: *ADPD4101, slot_count: u8) !void {
+        try set_opmode(self.fd, self.dev_addr, slot_count, false);
+    }
+
+    pub fn enable(self: *ADPD4101, slot_count: u8) !void {
+        try set_opmode(self.fd, self.dev_addr, slot_count, true);
+    }
+
     pub fn deinit(self: *ADPD4101) void {
         reset_all(self.fd, self.dev_addr) catch {
             // stderr.print("Failed to reset ADPD4101 during deinit: {}\n", .{err}) catch {};

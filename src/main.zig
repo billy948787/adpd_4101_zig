@@ -12,7 +12,7 @@ var processed_data_queue_mutex = std.Thread.Mutex{};
 
 var should_exit = std.atomic.Value(bool).init(false);
 var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
-var data_queue: std.ArrayList(u8) = undefined;
+var raw_data_queue: std.ArrayList(u8) = undefined;
 var processed_data_queue: std.ArrayList(ProcessedData) = undefined;
 
 var stdout_buffer: [1024]u8 = undefined;
@@ -22,6 +22,8 @@ const stdout = &stdout_writer.interface;
 var stderr_buffer: [1024]u8 = undefined;
 var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
 const stderr = &stderr_writer.interface;
+
+var need_stop = std.atomic.Value(bool).init(false);
 
 fn handle_signal(signum: c_int) callconv(.c) void {
     _ = signum;
@@ -38,6 +40,16 @@ fn send_data() void {
     };
 
     while (!should_exit.load(.seq_cst)) {
+        if (bt_output.client_socket_fd == null) {
+            std.debug.print("Bluetooth server listening on channel 1, waiting for connection...\n", .{});
+            need_stop.store(true, .seq_cst);
+            bt_output.accept() catch |err| {
+                stderr.print("Error accepting Bluetooth connection: {}\n", .{err}) catch {};
+                return;
+            };
+            need_stop.store(false, .seq_cst);
+            std.debug.print("Bluetooth client connected, ready to send data.\n", .{});
+        }
         processed_data_queue_mutex.lock();
         if (processed_data_queue.items.len > 0) {
             const data = processed_data_queue.items;
@@ -48,9 +60,11 @@ fn send_data() void {
                     continue;
                 };
                 bt_output.write(written) catch |err| {
-                    stderr.print("Error sending data over Bluetooth: {}\n", .{err}) catch {};
-                    // end the whole program
-                    should_exit.store(true, .seq_cst);
+                    stderr.print("Error writing data to Bluetooth: {}\n", .{err}) catch {};
+                    bt_output.closeClient() catch |close_err| {
+                        stderr.print("Error closing Bluetooth client socket: {}\n", .{close_err}) catch {};
+                    };
+                    break;
                 };
             }
             processed_data_queue.clearRetainingCapacity();
@@ -68,10 +82,30 @@ fn process_data_queue() void {
 
     var current_slot_index: usize = 0;
 
+    var sensor_active = true;
+
+    const allocator = gpa.allocator();
+    var local_data_queue = std.ArrayList(u8).initCapacity(allocator, 1024);
+    defer local_data_queue.deinit(allocator);
+
     while (!should_exit.load(.seq_cst)) {
+        if (need_stop.load(.seq_cst)) {
+            if (sensor_active) {
+                sensor_active = false;
+                std.debug.print("Sensor disabled, pausing data processing.\n", .{});
+            }
+            std.Thread.sleep(100 * std.time.ns_per_ms);
+            continue;
+        } else {
+            if (!sensor_active) {
+                sensor_active = true;
+                std.debug.print("Sensor enabled, resuming data processing.\n", .{});
+            }
+        }
         queue_mutex.lock();
-        if (data_queue.items.len > 0) {
-            const data = data_queue.items;
+
+        if (raw_data_queue.items.len > 0) {
+            const data = raw_data_queue.items;
             var data_index: usize = 0;
 
             while (data_index < data.len) {
@@ -128,7 +162,7 @@ fn process_data_queue() void {
                 stderr.print("Error flushing stdout: {}\n", .{err}) catch {};
             };
 
-            data_queue.replaceRange(gpa.allocator(), 0, data_index, &[_]u8{}) catch |err| {
+            raw_data_queue.replaceRange(gpa.allocator(), 0, data_index, &[_]u8{}) catch |err| {
                 stderr.print("Error removing processed data from queue: {}\n", .{err}) catch {};
             };
         }
@@ -137,7 +171,25 @@ fn process_data_queue() void {
 }
 
 fn read_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPIO) void {
+    var sensor_active = true;
     while (!should_exit.load(.seq_cst)) {
+        if (need_stop.load(.seq_cst)) {
+            if (sensor_active) {
+                sensor_active = false;
+                adpd_sensor.disable(adpd_config.time_slots.len) catch |err| {
+                    stderr.print("Error disabling ADPD4101 sensor: {}\n", .{err}) catch {};
+                };
+            }
+            std.Thread.sleep(100 * std.time.ns_per_ms);
+            continue;
+        } else {
+            if (!sensor_active) {
+                sensor_active = true;
+                adpd_sensor.enable(adpd_config.time_slots.len) catch |err| {
+                    stderr.print("Error enabling ADPD4101 sensor: {}\n", .{err}) catch {};
+                };
+            }
+        }
         interrupt_gpio.waitForInterrupt() catch |err| {
             stderr.print("Error waiting for GPIO interrupt: {}\n", .{err}) catch {};
             return;
@@ -152,12 +204,12 @@ fn read_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPI
         }
 
         queue_mutex.lock();
-        for (read_data) |byte| {
-            data_queue.append(gpa.allocator(), byte) catch |err| {
-                stderr.print("Error appending data to queue: {}\n", .{err}) catch {};
-            };
-        }
-
+        // for (read_data) |byte| {
+        //     data_queue.append(gpa.allocator(), byte) catch |err| {
+        //         stderr.print("Error appending data to queue: {}\n", .{err}) catch {};
+        //     };
+        // }
+        try raw_data_queue.appendSlice(gpa.allocator(), read_data);
         queue_mutex.unlock();
     }
 }
@@ -173,8 +225,8 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    data_queue = try std.ArrayList(u8).initCapacity(allocator, 1024);
-    defer data_queue.deinit(allocator);
+    raw_data_queue = try std.ArrayList(u8).initCapacity(allocator, 1024);
+    defer raw_data_queue.deinit(allocator);
 
     processed_data_queue = try std.ArrayList(ProcessedData).initCapacity(allocator, 1024);
     defer processed_data_queue.deinit(allocator);
