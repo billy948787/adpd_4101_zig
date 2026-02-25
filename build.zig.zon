@@ -31,12 +31,7 @@
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
-    .dependencies = .{
-        .dbus = .{
-            .url = "https://github.com/marler8997/dbus-zig/archive/refs/heads/master.zip",
-            .hash = "dbus-0.0.0-hqwuPiJqAgAb1fUn0mSHm1JTTZGROY1xnNAq8kko8CDB",
-        },
-    },
+    .dependencies = .{},
     .paths = .{
         "build.zig",
         "build.zig.zon",
