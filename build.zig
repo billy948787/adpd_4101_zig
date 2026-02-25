@@ -72,9 +72,12 @@ pub fn build(b: *std.Build) void {
             // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
             .optimize = optimize,
+            .link_libcpp = true,
         }),
     });
+    exe.root_module.addIncludePath(b.path("src/"));
 
+    exe.root_module.addCSourceFile(.{ .file = b.path("src/imu.cpp") });
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
     // step). By default the install prefix is `zig-out/` but can be overridden
