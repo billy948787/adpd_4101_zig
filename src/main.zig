@@ -7,6 +7,10 @@ const gpio = @import("utils/gpio.zig");
 const constant = @import("constant.zig");
 const bluetooth_output = @import("output/bluetooth.zig");
 
+const imu_cpp = @cImport({
+    @cInclude("imu.h");
+});
+
 var queue_mutex = std.Thread.Mutex{};
 var processed_data_queue_mutex = std.Thread.Mutex{};
 
