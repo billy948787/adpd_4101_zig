@@ -221,9 +221,9 @@ fn read_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPI
 }
 
 pub fn main() !void {
-    const act = linux.Sigaction{
+    const act = std.posix.Sigaction{
         .handler = .{ .handler = handle_signal },
-        .mask = std.mem.zeroes(linux.sigset_t),
+        .mask = std.posix.sigemptyset(),
         .flags = 0,
     };
     std.posix.sigaction(linux.SIG.INT, &act, null);
