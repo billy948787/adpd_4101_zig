@@ -266,7 +266,7 @@ fn process_adpd_queue() void {
 
 fn read_imu_data_loop() void {
     var sensor_active = true;
-
+    var fifo_buf: [imu_cpp.IMU_FIFO_MAX_SAMPLES]imu_cpp.ImuData = undefined;
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
             if (sensor_active) {
@@ -282,15 +282,18 @@ fn read_imu_data_loop() void {
             }
         }
 
-        const read_data = imu_cpp.imu_read();
+        var count: c_int = 0;
+        _ = imu_cpp.imu_read_fifo(&fifo_buf, imu_cpp.IMU_FIFO_MAX_SAMPLES, &count);
 
-        raw_imu_queue_mutex.lock();
-
-        raw_imu_data_queue.append(gpa.allocator(), read_data) catch |err| {
-            stderr.print("Error appending IMU data to queue: {}\n", .{err}) catch {};
-        };
-
-        raw_imu_queue_mutex.unlock();
+        if (count > 0) {
+            raw_imu_queue_mutex.lock();
+            for (fifo_buf[0..@intCast(count)]) |item| {
+                raw_imu_data_queue.append(gpa.allocator(), item) catch |err| {
+                    stderr.print("Error appending IMU data to queue: {}\n", .{err}) catch {};
+                };
+            }
+            raw_imu_queue_mutex.unlock();
+        }
     }
 }
 
