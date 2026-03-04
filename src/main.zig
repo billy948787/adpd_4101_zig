@@ -65,13 +65,12 @@ fn send_data() void {
                 var buffer: [512]u8 = undefined;
                 const written = std.fmt.bufPrint(
                     &buffer,
-                    "{d},{s},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n",
+                    "{d},{s},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n",
                     .{
                         serial_number.load(.seq_cst),
                         item.sensor_type,
                         item.sensor_timestamp,
                         item.host_monotonic_timestamp,
-                        item.seq,
                         item.ppg_value,
                         item.ax,
                         item.ay,
@@ -132,7 +131,6 @@ fn process_imu_queue() void {
                     .sensor_type = "IMU",
                     .sensor_timestamp = @intFromFloat(item.timestamp_s),
                     .host_monotonic_timestamp = monotonicNs(),
-                    .seq = serial_number.fetchAdd(1, .seq_cst),
                     .ppg_value = 0,
                     .ax = item.ax,
                     .ay = item.ay,
@@ -232,7 +230,6 @@ fn process_adpd_queue() void {
                     .sensor_type = "PPG",
                     .sensor_timestamp = @intCast(timestamp),
                     .host_monotonic_timestamp = monotonicNs(),
-                    .seq = serial_number.fetchAdd(1, .seq_cst),
                     .ppg_value = casted_value - 8192,
                     .ax = 0,
                     .ay = 0,
@@ -412,7 +409,6 @@ const ProcessedData = struct {
     sensor_type: []const u8,
     sensor_timestamp: i64,
     host_monotonic_timestamp: u64,
-    seq: u32,
     ppg_value: i64,
 
     ax: i16,
