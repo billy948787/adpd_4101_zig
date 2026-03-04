@@ -29,7 +29,7 @@ pub const ADPD4101 = struct {
         }
         try set_interrupt(fd, dev_addr, gpio_id, fifo_threshold);
         try set_time_slot_freq(fd, dev_addr, oscillator, timeslot_freq_hz);
-        try set_opmode(fd, dev_addr, @intCast(timeslots.len), true);
+        try set_opmode(fd, dev_addr, @intCast(timeslots.len), false);
         return ADPD4101{
             .fd = fd,
             .dev_addr = dev_addr,

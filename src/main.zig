@@ -262,7 +262,13 @@ fn process_adpd_queue() void {
 }
 
 fn read_imu_data_loop() void {
-    var sensor_active = false;
+    var sensor_active = true;
+    const result = imu_cpp.imu_enable();
+
+    if (result != 0) {
+        stderr.print("Failed to enable IMU: error code {}\n", .{result}) catch {};
+        return;
+    }
     var fifo_buf: [imu_cpp.IMU_FIFO_MAX_SAMPLES]imu_cpp.ImuData = undefined;
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
@@ -297,7 +303,10 @@ fn read_imu_data_loop() void {
 }
 
 fn read_adpd_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPIO) void {
-    var sensor_active = false;
+    var sensor_active = true;
+    adpd_sensor.enable(adpd_config.time_slots.len) catch |err| {
+        stderr.print("Error enabling ADPD4101 sensor: {}\n", .{err}) catch {};
+    };
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
             if (sensor_active) {
