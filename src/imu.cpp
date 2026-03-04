@@ -256,15 +256,8 @@ int imu_read_fifo(ImuData *out_buf, int buf_size, int *out_count) {
 
     // ── 讀取 Accel 當下最新一筆（Accel 無 FIFO，配對所有 Gyro 筆） ────────
     uint8_t a_buf[6]{};
-    bool accel_ok = false;
-    {
-      uint8_t status_a = g_i2c->read_reg(ADDR_XM, STATUS_REG_A);
-      if (status_a & 0x08) { // ZYXDA = 1：新資料就緒
-        g_i2c->read_block(
-            ADDR_XM, static_cast<uint8_t>((OUT_X_L_A | 0x80) & 0xFF), a_buf, 6);
-        accel_ok = true;
-      }
-    }
+    g_i2c->read_block(ADDR_XM, static_cast<uint8_t>((OUT_X_L_A | 0x80) & 0xFF),
+                      a_buf, 6);
 
     // ── 逐筆從 Gyro FIFO 讀出 ────────────────────────────────────────────
     for (int i = 0; i < to_read; ++i) {
@@ -277,14 +270,9 @@ int imu_read_fifo(ImuData *out_buf, int buf_size, int *out_count) {
       d.gy = s16(g_buf[2], g_buf[3]);
       d.gz = s16(g_buf[4], g_buf[5]);
 
-      // Accel 配對：有新資料就用，否則填 -1
-      if (accel_ok) {
-        d.ax = s16(a_buf[0], a_buf[1]);
-        d.ay = s16(a_buf[2], a_buf[3]);
-        d.az = s16(a_buf[4], a_buf[5]);
-      } else {
-        d.ax = d.ay = d.az = -1;
-      }
+      d.ax = s16(a_buf[0], a_buf[1]);
+      d.ay = s16(a_buf[2], a_buf[3]);
+      d.az = s16(a_buf[4], a_buf[5]);
 
       d.timestamp_s = now_s();
       d.status = 0;
