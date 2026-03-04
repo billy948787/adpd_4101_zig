@@ -63,7 +63,7 @@ fn send_data() void {
             const data = processed_data_queue.items;
             for (data) |item| {
                 var buffer: [64]u8 = undefined;
-                const written = std.fmt.bufPrint(&buffer, "{d},{d},{d}\n", .{ serial_number.load(.seq_cst), item.ppg_value, item.sensor_timestamp }) catch |err| {
+                const written = std.fmt.bufPrint(&buffer, "{d},{s},{d},{d},{d},{d},{d},{d},{d},{d}\n", .{ serial_number.load(.seq_cst), item.sensor_type, item.sensor_timestamp, item.host_monotonic_timestamp, item.seq, item.ppg_value, item.ax, item.ay, item.az, item.gx, item.gy, item.gz }) catch |err| {
                     stderr.print("Error formatting data for Bluetooth: {}\n", .{err}) catch {};
                     continue;
                 };
@@ -84,13 +84,20 @@ fn send_data() void {
 }
 
 fn process_imu_queue() void {
+    var is_enabled = true;
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
-            std.debug.print("Sensor disabled, pausing IMU data processing.\n", .{});
+            if (is_enabled) {
+                is_enabled = false;
+                std.debug.print("Sensor disabled, pausing IMU data processing.\n", .{});
+            }
             std.Thread.sleep(100 * std.time.ns_per_ms);
             continue;
         } else {
-            std.debug.print("Sensor enabled, resuming IMU data processing.\n", .{});
+            if (!is_enabled) {
+                is_enabled = true;
+                std.debug.print("Sensor enabled, resuming IMU data processing.\n", .{});
+            }
         }
 
         raw_imu_queue_mutex.lock();
@@ -143,13 +150,21 @@ fn process_adpd_queue() void {
 
     var current_slot_index: usize = 0;
 
+    var is_enable = true;
+
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
-            std.debug.print("Sensor disabled, pausing ADPD data processing.\n", .{});
+            if (is_enable) {
+                is_enable = false;
+                std.debug.print("Sensor disabled, pausing ADPD data processing.\n", .{});
+            }
             std.Thread.sleep(100 * std.time.ns_per_ms);
             continue;
         } else {
-            std.debug.print("Sensor enabled, resuming ADPD data processing.\n", .{});
+            if (!is_enable) {
+                is_enable = true;
+                std.debug.print("Sensor enabled, resuming ADPD data processing.\n", .{});
+            }
         }
         raw_adpd_queue_mutex.lock();
         defer raw_adpd_queue_mutex.unlock();
