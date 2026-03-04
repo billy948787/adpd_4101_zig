@@ -25,6 +25,8 @@ const stderr = &stderr_writer.interface;
 
 var need_stop = std.atomic.Value(bool).init(false);
 
+var serial_number: u32 = 0;
+
 fn handle_signal(signum: c_int) callconv(.c) void {
     _ = signum;
     should_exit.store(true, .seq_cst);
@@ -55,7 +57,7 @@ fn send_data() void {
             const data = processed_data_queue.items;
             for (data) |item| {
                 var buffer: [64]u8 = undefined;
-                const written = std.fmt.bufPrint(&buffer, "{d},{d}\n", .{ item.ppg_value, item.timestamp_ms }) catch |err| {
+                const written = std.fmt.bufPrint(&buffer, "{d},{d},{d}\n", .{ serial_number, item.ppg_value, item.timestamp_ms }) catch |err| {
                     stderr.print("Error formatting data for Bluetooth: {}\n", .{err}) catch {};
                     continue;
                 };
@@ -66,6 +68,8 @@ fn send_data() void {
                     };
                     break;
                 };
+
+                serial_number += 1;
             }
             processed_data_queue.clearRetainingCapacity();
         }
@@ -136,7 +140,7 @@ fn process_data_queue() void {
                 // };
 
                 const casted_value: i64 = @intCast(signal_value);
-                const timestamp = std.time.milliTimestamp();
+                const timestamp = std.time.microTimestamp();
 
                 // stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
                 //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};

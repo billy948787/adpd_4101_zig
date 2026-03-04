@@ -14,7 +14,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         .leds = &[_]adpd.Led{
             .{
                 .id = adpd.get_led_id("1A"),
-                .current = 0x07f,
+                .current = 0x05,
             },
         },
         .data_format = .{
@@ -29,8 +29,8 @@ pub const time_slots = [_]adpd.TimeSlot{
             .pair_12 = .IN1_Ch1,
         },
         .counts = .{
-            .num_integrations = 0x2,
-            .num_repeats = 0x8,
+            .num_integrations = 0x1,
+            .num_repeats = 0x32,
         },
         .mod_pulse = .{},
         .cathode = .{
