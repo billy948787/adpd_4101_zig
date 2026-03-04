@@ -85,6 +85,14 @@ fn send_data() void {
 
 fn process_imu_queue() void {
     while (!should_exit.load(.seq_cst)) {
+        if (need_stop.load(.seq_cst)) {
+            std.debug.print("Sensor disabled, pausing IMU data processing.\n", .{});
+            std.Thread.sleep(100 * std.time.ns_per_ms);
+            continue;
+        } else {
+            std.debug.print("Sensor enabled, resuming IMU data processing.\n", .{});
+        }
+
         raw_imu_queue_mutex.lock();
         var local_queue = std.ArrayList(ProcessedData).initCapacity(gpa.allocator(), raw_imu_data_queue.items.len) catch |err| {
             stderr.print("Error initializing local IMU data queue: {}\n", .{err}) catch {};
@@ -135,21 +143,13 @@ fn process_adpd_queue() void {
 
     var current_slot_index: usize = 0;
 
-    var sensor_active = true;
-
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
-            if (sensor_active) {
-                sensor_active = false;
-                std.debug.print("Sensor disabled, pausing data processing.\n", .{});
-            }
+            std.debug.print("Sensor disabled, pausing ADPD data processing.\n", .{});
             std.Thread.sleep(100 * std.time.ns_per_ms);
             continue;
         } else {
-            if (!sensor_active) {
-                sensor_active = true;
-                std.debug.print("Sensor enabled, resuming data processing.\n", .{});
-            }
+            std.debug.print("Sensor enabled, resuming ADPD data processing.\n", .{});
         }
         raw_adpd_queue_mutex.lock();
         defer raw_adpd_queue_mutex.unlock();
