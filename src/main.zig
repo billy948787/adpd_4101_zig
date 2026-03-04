@@ -62,7 +62,7 @@ fn send_data() void {
         if (processed_data_queue.items.len > 0) {
             const data = processed_data_queue.items;
             for (data) |item| {
-                var buffer: [64]u8 = undefined;
+                var buffer: [512]u8 = undefined;
                 const written = std.fmt.bufPrint(
                     &buffer,
                     "{d},{s},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n",
