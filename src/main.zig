@@ -63,7 +63,24 @@ fn send_data() void {
             const data = processed_data_queue.items;
             for (data) |item| {
                 var buffer: [64]u8 = undefined;
-                const written = std.fmt.bufPrint(&buffer, "{d},{s},{d},{d},{d},{d},{d},{d},{d},{d}\n", .{ serial_number.load(.seq_cst), item.sensor_type, item.sensor_timestamp, item.host_monotonic_timestamp, item.seq, item.ppg_value, item.ax, item.ay, item.az, item.gx, item.gy, item.gz }) catch |err| {
+                const written = std.fmt.bufPrint(
+                    &buffer,
+                    "{d},{s},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n",
+                    .{
+                        serial_number.load(.seq_cst),
+                        item.sensor_type,
+                        item.sensor_timestamp,
+                        item.host_monotonic_timestamp,
+                        item.seq,
+                        item.ppg_value,
+                        item.ax,
+                        item.ay,
+                        item.az,
+                        item.gx,
+                        item.gy,
+                        item.gz,
+                    },
+                ) catch |err| {
                     stderr.print("Error formatting data for Bluetooth: {}\n", .{err}) catch {};
                     continue;
                 };
