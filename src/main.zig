@@ -127,7 +127,7 @@ fn process_imu_queue() void {
             const data = raw_imu_data_queue.items;
             for (data) |item| {
                 // Process IMU data here, e.g., print or store it
-
+                if (item.status != 0) continue;
                 local_queue.append(gpa.allocator(), ProcessedData{
                     .sensor_type = "IMU",
                     .sensor_timestamp = @intFromFloat(item.timestamp_s),
