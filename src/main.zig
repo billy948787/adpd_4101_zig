@@ -31,7 +31,7 @@ const stderr = &stderr_writer.interface;
 
 var need_stop = std.atomic.Value(bool).init(false);
 
-var serial_number: u32 = 0;
+var serial_number = std.atomic.Value(u32).init(0);
 
 fn handle_signal(signum: c_int) callconv(.c) void {
     _ = signum;
@@ -63,7 +63,7 @@ fn send_data() void {
             const data = processed_data_queue.items;
             for (data) |item| {
                 var buffer: [64]u8 = undefined;
-                const written = std.fmt.bufPrint(&buffer, "{d},{d},{d}\n", .{ serial_number, item.ppg_value, item.timestamp_ms }) catch |err| {
+                const written = std.fmt.bufPrint(&buffer, "{d},{d},{d}\n", .{ serial_number.load(.seq_cst), item.ppg_value, item.sensor_timestamp }) catch |err| {
                     stderr.print("Error formatting data for Bluetooth: {}\n", .{err}) catch {};
                     continue;
                 };
@@ -75,7 +75,7 @@ fn send_data() void {
                     break;
                 };
 
-                serial_number += 1;
+                _ = serial_number.fetchAdd(1, .seq_cst);
             }
             processed_data_queue.clearRetainingCapacity();
         }
@@ -83,7 +83,50 @@ fn send_data() void {
     }
 }
 
-fn process_data_queue() void {
+fn process_imu_queue() void {
+    while (!should_exit.load(.seq_cst)) {
+        raw_imu_queue_mutex.lock();
+        var local_queue = std.ArrayList(ProcessedData).initCapacity(gpa.allocator(), raw_imu_data_queue.items.len) catch |err| {
+            stderr.print("Error initializing local IMU data queue: {}\n", .{err}) catch {};
+            raw_imu_queue_mutex.unlock();
+            return;
+        };
+        if (raw_imu_data_queue.items.len > 0) {
+            const data = raw_imu_data_queue.items;
+            for (data) |item| {
+                // Process IMU data here, e.g., print or store it
+
+                local_queue.append(gpa.allocator(), ProcessedData{
+                    .sensor_type = "IMU",
+                    .sensor_timestamp = @intFromFloat(item.timestamp_s),
+                    .host_monotonic_timestamp = monotonicNs(),
+                    .seq = serial_number.fetchAdd(1, .seq_cst),
+                    .ppg_value = 0,
+                    .ax = item.ax,
+                    .ay = item.ay,
+                    .az = item.az,
+                    .gx = item.gx,
+                    .gy = item.gy,
+                    .gz = item.gz,
+                }) catch |err| {
+                    stderr.print("Error processing IMU data: {}\n", .{err}) catch {};
+                };
+            }
+            raw_imu_data_queue.clearRetainingCapacity();
+        }
+        raw_imu_queue_mutex.unlock();
+
+        processed_data_queue_mutex.lock();
+
+        processed_data_queue.appendSlice(gpa.allocator(), local_queue.items) catch |err| {
+            stderr.print("Error appending processed IMU data to main queue: {}\n", .{err}) catch {};
+        };
+
+        processed_data_queue_mutex.unlock();
+    }
+}
+
+fn process_adpd_queue() void {
     var timeslot_signal_size_arr: [adpd_config.time_slots.len]usize = undefined;
 
     inline for (adpd_config.time_slots, 0..) |slot, i| {
@@ -154,8 +197,17 @@ fn process_data_queue() void {
 
                 processed_data_queue_mutex.lock();
                 processed_data_queue.append(gpa.allocator(), ProcessedData{
+                    .sensor_type = "PPG",
+                    .sensor_timestamp = @intCast(timestamp),
+                    .host_monotonic_timestamp = monotonicNs(),
+                    .seq = serial_number.fetchAdd(1, .seq_cst),
                     .ppg_value = casted_value - 8192,
-                    .timestamp_ms = @intCast(timestamp),
+                    .ax = 0,
+                    .ay = 0,
+                    .az = 0,
+                    .gx = 0,
+                    .gy = 0,
+                    .gz = 0,
                 }) catch |err| {
                     stderr.print("Error appending processed data: {}\n", .{err}) catch {};
                 };
@@ -270,6 +322,9 @@ pub fn main() !void {
     raw_adpd_data_queue = try std.ArrayList(u8).initCapacity(allocator, 1024);
     defer raw_adpd_data_queue.deinit(allocator);
 
+    raw_imu_data_queue = try std.ArrayList(imu_cpp.ImuData).initCapacity(allocator, 1024);
+    defer raw_imu_data_queue.deinit(allocator);
+
     processed_data_queue = try std.ArrayList(ProcessedData).initCapacity(allocator, 1024);
     defer processed_data_queue.deinit(allocator);
 
@@ -294,12 +349,24 @@ pub fn main() !void {
         stderr.print("Failed to deinitialize GPIO: {}\n", .{err}) catch {};
     };
 
-    const data_thread = try std.Thread.spawn(.{}, read_adpd_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
-    defer data_thread.join();
-    const process_thread = try std.Thread.spawn(.{}, process_data_queue, .{});
-    defer process_thread.join();
+    const result = imu_cpp.imu_init();
+
+    if (result != 0) {
+        stderr.print("Failed to initialize IMU: error code {}\n", .{result}) catch {};
+        return;
+    }
+    defer imu_cpp.imu_deinit();
+
+    const adpd_thread = try std.Thread.spawn(.{}, read_adpd_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
+    defer adpd_thread.join();
+    const process_adpd_thread = try std.Thread.spawn(.{}, process_adpd_queue, .{});
+    defer process_adpd_thread.join();
+    const process_imu_thread = try std.Thread.spawn(.{}, process_imu_queue, .{});
+    defer process_imu_thread.join();
     const bluetooth_thread = try std.Thread.spawn(.{}, send_data, .{});
     defer bluetooth_thread.join();
+    const imu_thread = try std.Thread.spawn(.{}, read_imu_data_loop, .{});
+    defer imu_thread.join();
 
     while (!should_exit.load(.seq_cst)) {
         std.Thread.sleep(100 * std.time.ns_per_ms);
@@ -307,6 +374,22 @@ pub fn main() !void {
 }
 
 const ProcessedData = struct {
+    sensor_type: []const u8,
+    sensor_timestamp: i64,
+    host_monotonic_timestamp: u64,
+    seq: u32,
     ppg_value: i64,
-    timestamp_ms: u64,
+
+    ax: i16,
+    ay: i16,
+    az: i16,
+    gx: i16,
+    gy: i16,
+    gz: i16,
 };
+
+fn monotonicNs() u64 {
+    const ts = std.posix.clock_gettime(std.posix.CLOCK.MONOTONIC) catch return 0;
+    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s +
+        @as(u64, @intCast(ts.nsec));
+}
