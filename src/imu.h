@@ -1,6 +1,8 @@
 #include <stdint.h>
-
-extern "C" {
+#ifdef __cplusplus
+extern "C"
+#endif
+{
 struct ImuData {
   double timestamp_s;
   int16_t ax, ay, az;

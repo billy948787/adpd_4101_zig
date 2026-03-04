@@ -11,12 +11,14 @@ const imu_cpp = @cImport({
     @cInclude("imu.h");
 });
 
-var queue_mutex = std.Thread.Mutex{};
+var raw_adpd_queue_mutex = std.Thread.Mutex{};
+var raw_imu_queue_mutex = std.Thread.Mutex{};
 var processed_data_queue_mutex = std.Thread.Mutex{};
 
 var should_exit = std.atomic.Value(bool).init(false);
 var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
-var raw_data_queue: std.ArrayList(u8) = undefined;
+var raw_adpd_data_queue: std.ArrayList(u8) = undefined;
+var raw_imu_data_queue: std.ArrayList(imu_cpp.ImuData) = undefined;
 var processed_data_queue: std.ArrayList(ProcessedData) = undefined;
 
 var stdout_buffer: [1024]u8 = undefined;
@@ -106,11 +108,11 @@ fn process_data_queue() void {
                 std.debug.print("Sensor enabled, resuming data processing.\n", .{});
             }
         }
-        queue_mutex.lock();
-        defer queue_mutex.unlock();
+        raw_adpd_queue_mutex.lock();
+        defer raw_adpd_queue_mutex.unlock();
 
-        if (raw_data_queue.items.len > 0) {
-            const data = raw_data_queue.items;
+        if (raw_adpd_data_queue.items.len > 0) {
+            const data = raw_adpd_data_queue.items;
             var data_index: usize = 0;
 
             while (data_index < data.len) {
@@ -163,7 +165,7 @@ fn process_data_queue() void {
                 current_slot_index = (current_slot_index + 1) % adpd_config.time_slots.len;
             }
 
-            raw_data_queue.replaceRange(gpa.allocator(), 0, data_index, &[_]u8{}) catch |err| {
+            raw_adpd_data_queue.replaceRange(gpa.allocator(), 0, data_index, &[_]u8{}) catch |err| {
                 stderr.print("Error removing processed data from queue: {}\n", .{err}) catch {};
             };
 
@@ -178,7 +180,37 @@ fn process_data_queue() void {
     }
 }
 
-fn read_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPIO) void {
+fn read_imu_data_loop() void {
+    var sensor_active = true;
+
+    while (!should_exit.load(.seq_cst)) {
+        if (need_stop.load(.seq_cst)) {
+            if (sensor_active) {
+                sensor_active = false;
+                std.debug.print("Sensor disabled, pausing IMU data reading.\n", .{});
+            }
+            std.Thread.sleep(100 * std.time.ns_per_ms);
+            continue;
+        } else {
+            if (!sensor_active) {
+                sensor_active = true;
+                std.debug.print("Sensor enabled, resuming IMU data reading.\n", .{});
+            }
+        }
+
+        const read_data = imu_cpp.imu_read();
+
+        raw_imu_queue_mutex.lock();
+
+        raw_imu_data_queue.append(gpa.allocator(), read_data) catch |err| {
+            stderr.print("Error appending IMU data to queue: {}\n", .{err}) catch {};
+        };
+
+        raw_imu_queue_mutex.unlock();
+    }
+}
+
+fn read_adpd_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPIO) void {
     var sensor_active = true;
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
@@ -211,14 +243,14 @@ fn read_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPI
             continue;
         }
 
-        queue_mutex.lock();
-        defer queue_mutex.unlock();
+        raw_adpd_queue_mutex.lock();
+        defer raw_adpd_queue_mutex.unlock();
         // for (read_data) |byte| {
         //     data_queue.append(gpa.allocator(), byte) catch |err| {
         //         stderr.print("Error appending data to queue: {}\n", .{err}) catch {};
         //     };
         // }
-        raw_data_queue.appendSlice(gpa.allocator(), read_data) catch |err| {
+        raw_adpd_data_queue.appendSlice(gpa.allocator(), read_data) catch |err| {
             stderr.print("Error appending read data to queue: {}\n", .{err}) catch {};
         };
     }
@@ -235,8 +267,8 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    raw_data_queue = try std.ArrayList(u8).initCapacity(allocator, 1024);
-    defer raw_data_queue.deinit(allocator);
+    raw_adpd_data_queue = try std.ArrayList(u8).initCapacity(allocator, 1024);
+    defer raw_adpd_data_queue.deinit(allocator);
 
     processed_data_queue = try std.ArrayList(ProcessedData).initCapacity(allocator, 1024);
     defer processed_data_queue.deinit(allocator);
@@ -262,7 +294,7 @@ pub fn main() !void {
         stderr.print("Failed to deinitialize GPIO: {}\n", .{err}) catch {};
     };
 
-    const data_thread = try std.Thread.spawn(.{}, read_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
+    const data_thread = try std.Thread.spawn(.{}, read_adpd_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
     defer data_thread.join();
     const process_thread = try std.Thread.spawn(.{}, process_data_queue, .{});
     defer process_thread.join();
