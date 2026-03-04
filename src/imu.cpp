@@ -125,37 +125,30 @@ static I2CDevice *g_i2c = nullptr;
 extern "C" {
 
 // ── imu_init ──────────────────────────────────────────────────────────────
+// 只開 I2C、確認設備身份，感測器維持 power down 狀態
+// 要開始讀資料前需另外呼叫 imu_enable()
 int imu_init() {
   if (g_i2c != nullptr)
-    return 0; // 已初始化
+    return 0;
 
   try {
     g_i2c = new I2CDevice(DEV);
 
-    // 確認設備身份（忽略回傳值，僅確保通訊正常）
     (void)g_i2c->read_reg(ADDR_XM, WHO_AM_I);
     (void)g_i2c->read_reg(ADDR_G, WHO_AM_I);
 
-    // ── Accel 初始化 ──────────────────────────────────────────────────────
-    // CTRL_REG1_XM = 0x57: ODR=100Hz，全軸啟用
-    g_i2c->write_reg(ADDR_XM, CTRL_REG1_XM, 0x57);
-    // CTRL_REG4_XM = 0x00: ±2g，高解析度
-    g_i2c->write_reg(ADDR_XM, CTRL_REG4_XM, 0x00);
+    // Gyro power down（CTRL_REG1_G = 0x00）
+    g_i2c->write_reg(ADDR_G, CTRL_REG1_G, 0x00);
 
-    // ── Gyro 初始化 ───────────────────────────────────────────────────────
-    // CTRL_REG1_G = 0x0F: 正常模式，95Hz，全軸啟用
-    g_i2c->write_reg(ADDR_G, CTRL_REG1_G, 0x0F);
-    // CTRL_REG4_G = 0x00: ±245 dps
-    g_i2c->write_reg(ADDR_G, CTRL_REG4_G, 0x00);
+    // Accel power down（CTRL_REG1_XM ODR bits[7:4] = 0000）
+    g_i2c->write_reg(ADDR_XM, CTRL_REG1_XM, 0x00);
 
-    // ── 啟用 Gyro FIFO ────────────────────────────────────────────────────
-    // CTRL_REG5_G bit6 = FIFO_EN；保留其他位元
+    // FIFO bypass mode（停止累積）
+    g_i2c->write_reg(ADDR_G, FIFO_CTRL_REG, 0x00);
+
+    // 關閉 Gyro FIFO_EN
     uint8_t reg5 = g_i2c->read_reg(ADDR_G, CTRL_REG5_G);
-    g_i2c->write_reg(ADDR_G, CTRL_REG5_G, static_cast<uint8_t>(reg5 | 0x40));
-
-    // FIFO_CTRL_REG: Stream mode, watermark = 31
-    g_i2c->write_reg(ADDR_G, FIFO_CTRL_REG,
-                     static_cast<uint8_t>(FIFO_MODE_STREAM | FIFO_WATERMARK));
+    g_i2c->write_reg(ADDR_G, CTRL_REG5_G, static_cast<uint8_t>(reg5 & ~0x40));
 
     return 0;
   } catch (const std::exception &e) {
@@ -166,8 +159,66 @@ int imu_init() {
   }
 }
 
+// ── imu_enable ────────────────────────────────────────────────────────────
+// 藍芽連線後呼叫：power on + 清空 FIFO + 重啟 Stream mode
+int imu_enable() {
+  if (g_i2c == nullptr)
+    return -1;
+
+  try {
+    // Accel: ODR=100Hz，全軸啟用
+    g_i2c->write_reg(ADDR_XM, CTRL_REG1_XM, 0x57);
+    g_i2c->write_reg(ADDR_XM, CTRL_REG4_XM, 0x00);
+
+    // Gyro: 正常模式，95Hz，全軸啟用
+    g_i2c->write_reg(ADDR_G, CTRL_REG1_G, 0x0F);
+    g_i2c->write_reg(ADDR_G, CTRL_REG4_G, 0x00);
+
+    // 啟用 FIFO_EN
+    uint8_t reg5 = g_i2c->read_reg(ADDR_G, CTRL_REG5_G);
+    g_i2c->write_reg(ADDR_G, CTRL_REG5_G, static_cast<uint8_t>(reg5 | 0x40));
+
+    // 清空 FIFO：先切 Bypass，再切回 Stream
+    // Bypass mode 會立刻清除所有 FIFO 內容
+    g_i2c->write_reg(ADDR_G, FIFO_CTRL_REG, 0x00);
+    g_i2c->write_reg(ADDR_G, FIFO_CTRL_REG,
+                     static_cast<uint8_t>(FIFO_MODE_STREAM | FIFO_WATERMARK));
+
+    return 0;
+  } catch (const std::exception &e) {
+    std::cerr << "imu_enable error: " << e.what() << "\n";
+    return -1;
+  }
+}
+
+// ── imu_disable ───────────────────────────────────────────────────────────
+// 藍芽斷線或等待連線時呼叫：power down + FIFO bypass
+void imu_disable() {
+  if (g_i2c == nullptr)
+    return;
+
+  try {
+    // FIFO 切回 Bypass，清空並停止累積
+    g_i2c->write_reg(ADDR_G, FIFO_CTRL_REG, 0x00);
+
+    // 關閉 FIFO_EN
+    uint8_t reg5 = g_i2c->read_reg(ADDR_G, CTRL_REG5_G);
+    g_i2c->write_reg(ADDR_G, CTRL_REG5_G, static_cast<uint8_t>(reg5 & ~0x40));
+
+    // Gyro power down
+    g_i2c->write_reg(ADDR_G, CTRL_REG1_G, 0x00);
+
+    // Accel power down
+    g_i2c->write_reg(ADDR_XM, CTRL_REG1_XM, 0x00);
+
+  } catch (const std::exception &e) {
+    std::cerr << "imu_disable error: " << e.what() << "\n";
+  }
+}
+
 // ── imu_deinit ────────────────────────────────────────────────────────────
 void imu_deinit() {
+  imu_disable();
   delete g_i2c;
   g_i2c = nullptr;
 }

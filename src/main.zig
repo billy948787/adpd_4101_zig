@@ -100,7 +100,7 @@ fn send_data() void {
 }
 
 fn process_imu_queue() void {
-    var is_enabled = true;
+    var is_enabled = false;
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
             if (is_enabled) {
@@ -165,7 +165,7 @@ fn process_adpd_queue() void {
 
     var current_slot_index: usize = 0;
 
-    var is_enable = true;
+    var is_enable = false;
 
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
@@ -262,12 +262,13 @@ fn process_adpd_queue() void {
 }
 
 fn read_imu_data_loop() void {
-    var sensor_active = true;
+    var sensor_active = false;
     var fifo_buf: [imu_cpp.IMU_FIFO_MAX_SAMPLES]imu_cpp.ImuData = undefined;
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
             if (sensor_active) {
                 sensor_active = false;
+                imu_cpp.imu_disable();
                 std.debug.print("Sensor disabled, pausing IMU data reading.\n", .{});
             }
             std.Thread.sleep(100 * std.time.ns_per_ms);
@@ -275,6 +276,7 @@ fn read_imu_data_loop() void {
         } else {
             if (!sensor_active) {
                 sensor_active = true;
+                _ = imu_cpp.imu_enable();
                 std.debug.print("Sensor enabled, resuming IMU data reading.\n", .{});
             }
         }
@@ -295,7 +297,7 @@ fn read_imu_data_loop() void {
 }
 
 fn read_adpd_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPIO) void {
-    var sensor_active = true;
+    var sensor_active = false;
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
             if (sensor_active) {
