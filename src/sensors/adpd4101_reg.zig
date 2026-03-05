@@ -106,3 +106,14 @@ pub const CathodeReg = packed struct(u16) {
     precondition: u3,
     reserved: u1,
 };
+
+pub const AfeTrimReg = packed struct(u16) {
+    TIA_GAIN_CH1: u3,
+    TIA_GAIN_CH2: u3,
+    VREF_PULSE_VAL: u2,
+    AFE_TRIM_VREF: u2,
+    VREF_PULSE: u1,
+    CH1_TRIM_INT: u2,
+    CH2_TRIM_INT: u2,
+    TIA_CEIL_DETECT: u1,
+};

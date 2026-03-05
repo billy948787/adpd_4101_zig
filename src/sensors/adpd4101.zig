@@ -172,6 +172,7 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     const led_pow12_target_reg = LED_POW12_A_REG + (slot.id[0] - 'A') * 0x20;
     const led_pow34_target_reg = LED_POW34_A_REG + (slot.id[0] - 'A') * 0x20;
     const counts_target_reg = COUNTS_A_REG + (slot.id[0] - 'A') * 0x20;
+    const afe_trim_target_reg = AFE_TRIM_A_REG + (slot.id[0] - 'A') * 0x20;
     // buffer
     var data: [2]u8 = undefined;
 
@@ -215,6 +216,21 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     try i2c.i2cWriteReg(fd, dev_addr, input_target_reg, @as([2]u8, data));
     std.mem.writeInt(u16, &data, @bitCast(ts_ctrl_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, ts_ctrl_target_reg, @as([2]u8, data));
+
+    // confit afe trim
+    const afe_trim_reg = regs.AfeTrimReg{
+        .AFE_TRIM_VREF = @intFromEnum(slot.afe_trim.afe_trim_vref),
+        .CH1_TRIM_INT = slot.afe_trim.ch1_trim_int,
+        .CH2_TRIM_INT = slot.afe_trim.ch2_trim_int,
+        .TIA_CEIL_DETECT = slot.afe_trim.tia_ceil_detect,
+        .TIA_GAIN_CH1 = @intFromEnum(slot.afe_trim.tia_gain_ch1),
+        .TIA_GAIN_CH2 = @intFromEnum(slot.afe_trim.tia_gain_ch2),
+        .VREF_PULSE = slot.afe_trim.vref_pulse,
+        .VREF_PULSE_VAL = @intFromEnum(slot.afe_trim.vref_pulse_val),
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(afe_trim_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, afe_trim_target_reg, @as([2]u8, data));
 
     const data_format_reg = regs.DataFormatReg{
         .dark_shift = slot.data_format.dark_shift,
@@ -477,6 +493,19 @@ const CATHODE_I_REG: u16 = 0x0203;
 const CATHODE_J_REG: u16 = 0x0223;
 const CATHODE_K_REG: u16 = 0x0243;
 const CATHODE_L_REG: u16 = 0x0263;
+// afe trim register
+const AFE_TRIM_A_REG: u16 = 0x0104;
+const AFE_TRIM_B_REG: u16 = 0x0124;
+const AFE_TRIM_C_REG: u16 = 0x0144;
+const AFE_TRIM_D_REG: u16 = 0x0164;
+const AFE_TRIM_E_REG: u16 = 0x0184;
+const AFE_TRIM_F_REG: u16 = 0x01A4;
+const AFE_TRIM_G_REG: u16 = 0x01C4;
+const AFE_TRIM_H_REG: u16 = 0x01E4;
+const AFE_TRIM_I_REG: u16 = 0x0204;
+const AFE_TRIM_J_REG: u16 = 0x0224;
+const AFE_TRIM_K_REG: u16 = 0x0244;
+const AFE_TRIM_L_REG: u16 = 0x0264;
 // gpio register
 const GPIO_CFG_REG: u16 = 0x0022;
 const GPIO_01_REG: u16 = 0x0023;
@@ -494,6 +523,7 @@ pub const TimeSlot = struct {
     input_config: InputConfig,
     mod_pulse: ModPulse,
     cathode: Cathode,
+    afe_trim: AfeTrim,
 };
 
 pub const InputPairMode = enum(u4) {
@@ -539,6 +569,17 @@ pub const Cathode = struct {
     vc2_pulse_control: PulseControl = .NO_PULSING,
 };
 
+pub const AfeTrim = struct {
+    tia_ceil_detect: u1 = 0,
+    ch2_trim_int: u2 = 0,
+    ch1_trim_int: u2 = 0,
+    vref_pulse: u1 = 0,
+    afe_trim_vref: AfeTrimVref = .VREF_1_265V,
+    vref_pulse_val: VrefPulse = .MODULATE_TIA_VREF_1_265V,
+    tia_gain_ch2: TiaGain = .KOHM200,
+    tia_gain_ch1: TiaGain = .KOHM200,
+};
+
 pub const Precondition = enum(u3) {
     FLOAT = 0b000,
     VC1 = 0b001,
@@ -554,6 +595,28 @@ pub const VCState = enum(u2) {
     TIA_VREF = 0b01,
     TIA_VREF_PLUS_215mV = 0b10,
     GND,
+};
+
+pub const TiaGain = enum(u3) {
+    KOHM200 = 0b000,
+    KOHM100 = 0b001,
+    KOHM50 = 0b010,
+    KOHM25 = 0b011,
+    KOHM12_5 = 0b100,
+};
+
+pub const AfeTrimVref = enum(u3) {
+    VREF_1_1385V = 0b000,
+    VREF_1_012V = 0b001,
+    VREF_0_8855V = 0b010,
+    VREF_1_265V = 0b011,
+};
+
+pub const VrefPulse = enum(u2) {
+    MODULATE_TIA_VREF_1_1385V = 0b00,
+    MODULATE_TIA_VREF_1_012V = 0b01,
+    MODULATE_TIA_VREF_0_8855V = 0b10,
+    MODULATE_TIA_VREF_1_265V = 0b11,
 };
 
 pub const PulseControl = enum(u2) {

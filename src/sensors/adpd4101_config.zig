@@ -14,7 +14,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         .leds = &[_]adpd.Led{
             .{
                 .id = adpd.get_led_id("1A"),
-                .current = 0x05,
+                .current = 0x3f,
             },
         },
         .data_format = .{
@@ -30,12 +30,15 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .counts = .{
             .num_integrations = 0x1,
-            .num_repeats = 0x32,
+            .num_repeats = 0x16,
         },
         .mod_pulse = .{},
         .cathode = .{
             .vc1_select = .TIA_VREF_PLUS_215mV,
             .precondition = .TIA_VREF,
+        },
+        .afe_trim = .{
+            .tia_gain_ch1 = .KOHM12_5,
         },
     },
 };
