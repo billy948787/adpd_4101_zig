@@ -156,6 +156,7 @@ fn process_imu_queue() void {
     }
 }
 
+// TODO: Change the timestamp acording to the sensor hz.
 fn process_adpd_queue() void {
     var timeslot_signal_size_arr: [adpd_config.time_slots.len]usize = undefined;
 
