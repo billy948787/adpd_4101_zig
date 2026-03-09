@@ -173,6 +173,7 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     const led_pow34_target_reg = LED_POW34_A_REG + (slot.id[0] - 'A') * 0x20;
     const counts_target_reg = COUNTS_A_REG + (slot.id[0] - 'A') * 0x20;
     const afe_trim_target_reg = AFE_TRIM_A_REG + (slot.id[0] - 'A') * 0x20;
+    const pattern_target_reg = PATTERN_A_REG + (slot.id[0] - 'A') * 0x20;
     // buffer
     var data: [2]u8 = undefined;
 
@@ -258,6 +259,16 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
 
     std.mem.writeInt(u16, &data, @bitCast(mod_pulse_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, mod_pulse_target_reg, @as([2]u8, data));
+
+    const pattern_reg = regs.PatternReg{
+        .LED_DISABLE = slot.pattern.led_disable,
+        .REVERSE_INTEGRATION = slot.pattern.reverse_integration,
+        .MOD_DISABLE = slot.pattern.mod_disable,
+        .SUBTRACT = slot.pattern.subtract,
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(pattern_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, pattern_target_reg, @as([2]u8, data));
 
     var led_pow12_reg: regs.LedPowerReg = regs.LedPowerReg{
         .led1_driveside = 0,
@@ -506,6 +517,19 @@ const AFE_TRIM_I_REG: u16 = 0x0204;
 const AFE_TRIM_J_REG: u16 = 0x0224;
 const AFE_TRIM_K_REG: u16 = 0x0244;
 const AFE_TRIM_L_REG: u16 = 0x0264;
+// pattern register
+const PATTERN_A_REG: u16 = 0x010D;
+const PATTERN_B_REG: u16 = 0x012D;
+const PATTERN_C_REG: u16 = 0x014D;
+const PATTERN_D_REG: u16 = 0x016D;
+const PATTERN_E_REG: u16 = 0x018D;
+const PATTERN_F_REG: u16 = 0x01AD;
+const PATTERN_G_REG: u16 = 0x01CD;
+const PATTERN_H_REG: u16 = 0x01ED;
+const PATTERN_I_REG: u16 = 0x020D;
+const PATTERN_J_REG: u16 = 0x022D;
+const PATTERN_K_REG: u16 = 0x024D;
+const PATTERN_L_REG: u16 = 0x026D;
 // gpio register
 const GPIO_CFG_REG: u16 = 0x0022;
 const GPIO_01_REG: u16 = 0x0023;
@@ -524,6 +548,7 @@ pub const TimeSlot = struct {
     mod_pulse: ModPulse,
     cathode: Cathode,
     afe_trim: AfeTrim,
+    pattern: Pattern,
 };
 
 pub const InputPairMode = enum(u4) {
@@ -578,6 +603,13 @@ pub const AfeTrim = struct {
     vref_pulse_val: VrefPulse = .MODULATE_TIA_VREF_1_265V,
     tia_gain_ch2: TiaGain = .KOHM200,
     tia_gain_ch1: TiaGain = .KOHM200,
+};
+
+pub const Pattern = struct {
+    led_disable: u4 = 0x0,
+    mod_disable: u4 = 0x0,
+    subtract: u4 = 0x0,
+    reverse_integration: u4 = 0x0,
 };
 
 pub const Precondition = enum(u3) {

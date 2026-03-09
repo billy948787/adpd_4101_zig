@@ -117,3 +117,10 @@ pub const AfeTrimReg = packed struct(u16) {
     CH2_TRIM_INT: u2,
     TIA_CEIL_DETECT: u1,
 };
+
+pub const PatternReg = packed struct(u16) {
+    REVERSE_INTEGRATION: u4,
+    SUBTRACT: u4,
+    MOD_DISABLE: u4,
+    LED_DISABLE: u4,
+};

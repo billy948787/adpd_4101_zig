@@ -40,5 +40,9 @@ pub const time_slots = [_]adpd.TimeSlot{
         .afe_trim = .{
             .tia_gain_ch1 = .KOHM12_5,
         },
+        .pattern = .{
+            .led_disable = 0xA,
+            .reverse_integration = 0xA,
+        },
     },
 };
