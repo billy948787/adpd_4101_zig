@@ -174,6 +174,8 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     const counts_target_reg = COUNTS_A_REG + (slot.id[0] - 'A') * 0x20;
     const afe_trim_target_reg = AFE_TRIM_A_REG + (slot.id[0] - 'A') * 0x20;
     const pattern_target_reg = PATTERN_A_REG + (slot.id[0] - 'A') * 0x20;
+    const adc_offset1_target_reg = ADC_OFF1_A_REG + (slot.id[0] - 'A') * 0x20;
+    const adc_offset2_target_reg = ADC_OFF2_A_REG + (slot.id[0] - 'A') * 0x20;
     // buffer
     var data: [2]u8 = undefined;
 
@@ -320,6 +322,21 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     };
     std.mem.writeInt(u16, &data, @bitCast(counts_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, counts_target_reg, @as([2]u8, data));
+
+    const adc_offset1_reg = regs.AdcOffset1Reg{
+        .CH1_ADC_ADJUST = slot.adc_offset1.ch1_adc_adjust,
+        .RESERVED = 0,
+    };
+    std.mem.writeInt(u16, &data, @bitCast(adc_offset1_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, adc_offset1_target_reg, @as([2]u8, data));
+
+    const adc_offset2_reg = regs.AdcOffset2Reg{
+        .CH2_ADC_ADJUST = slot.adc_offset2.ch2_adc_adjust,
+        .ZERO_ADJUST = slot.adc_offset2.zero_adjust,
+        .RESERVED = 0,
+    };
+    std.mem.writeInt(u16, &data, @bitCast(adc_offset2_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, adc_offset2_target_reg, @as([2]u8, data));
 
     // configure cathode
     const cathode_target_reg = CATHODE_A_REG + (slot.id[0] - 'A') * 0x20;
@@ -530,6 +547,43 @@ const PATTERN_I_REG: u16 = 0x020D;
 const PATTERN_J_REG: u16 = 0x022D;
 const PATTERN_K_REG: u16 = 0x024D;
 const PATTERN_L_REG: u16 = 0x026D;
+// adc offset register
+const ADC_OFF1_A_REG: u16 = 0x010E;
+const ADC_OFF1_B_REG: u16 = 0x012E;
+const ADC_OFF1_C_REG: u16 = 0x014E;
+const ADC_OFF1_D_REG: u16 = 0x016E;
+const ADC_OFF1_E_REG: u16 = 0x018E;
+const ADC_OFF1_F_REG: u16 = 0x01AE;
+const ADC_OFF1_G_REG: u16 = 0x01CE;
+const ADC_OFF1_H_REG: u16 = 0x01EE;
+const ADC_OFF1_I_REG: u16 = 0x020E;
+const ADC_OFF1_J_REG: u16 = 0x022E;
+const ADC_OFF1_K_REG: u16 = 0x024E;
+const ADC_OFF1_L_REG: u16 = 0x026E;
+const ADC_OFF2_A_REG: u16 = 0x010F;
+const ADC_OFF2_B_REG: u16 = 0x012F;
+const ADC_OFF2_C_REG: u16 = 0x014F;
+const ADC_OFF2_D_REG: u16 = 0x016F;
+const ADC_OFF2_E_REG: u16 = 0x018F;
+const ADC_OFF2_F_REG: u16 = 0x01AF;
+const ADC_OFF2_G_REG: u16 = 0x01CF;
+const ADC_OFF2_H_REG: u16 = 0x01EF;
+const ADC_OFF2_I_REG: u16 = 0x020F;
+const ADC_OFF2_J_REG: u16 = 0x022F;
+const ADC_OFF2_K_REG: u16 = 0x024F;
+const ADC_OFF2_L_REG: u16 = 0x026F;
+const INTEG_OS_A_REG: u16 = 0x010B;
+const INTEG_OS_B_REG: u16 = 0x012B;
+const INTEG_OS_C_REG: u16 = 0x014B;
+const INTEG_OS_D_REG: u16 = 0x016B;
+const INTEG_OS_E_REG: u16 = 0x018B;
+const INTEG_OS_F_REG: u16 = 0x01AB;
+const INTEG_OS_G_REG: u16 = 0x01CB;
+const INTEG_OS_H_REG: u16 = 0x01EB;
+const INTEG_OS_I_REG: u16 = 0x020B;
+const INTEG_OS_J_REG: u16 = 0x022B;
+const INTEG_OS_K_REG: u16 = 0x024B;
+const INTEG_OS_L_REG: u16 = 0x026B;
 // gpio register
 const GPIO_CFG_REG: u16 = 0x0022;
 const GPIO_01_REG: u16 = 0x0023;
@@ -549,6 +603,9 @@ pub const TimeSlot = struct {
     cathode: Cathode,
     afe_trim: AfeTrim,
     pattern: Pattern,
+    adc_offset1: AdcOffset1,
+    adc_offset2: AdcOffset2,
+    IntegrateOffset: IntegrateOffset,
 };
 
 pub const InputPairMode = enum(u4) {
@@ -561,6 +618,11 @@ pub const InputPairMode = enum(u4) {
     IN1_Ch2_IN2_Ch1 = 0b0110,
     Both_Ch1 = 0b0111,
     Both_Ch2 = 0b1000,
+};
+
+pub const IntegrateOffset = struct {
+    integrate_offset_31_25_NS: u5 = 0x14,
+    integrate_offset_1_US: u8 = 0x10,
 };
 
 pub const InputConfig = struct {
@@ -603,6 +665,15 @@ pub const AfeTrim = struct {
     vref_pulse_val: VrefPulse = .MODULATE_TIA_VREF_1_265V,
     tia_gain_ch2: TiaGain = .KOHM200,
     tia_gain_ch1: TiaGain = .KOHM200,
+};
+
+pub const AdcOffset1 = struct {
+    ch1_adc_adjust: u14 = 0,
+};
+
+pub const AdcOffset2 = struct {
+    ch2_adc_adjust: u14 = 0,
+    zero_adjust: u1 = 0,
 };
 
 pub const Pattern = struct {

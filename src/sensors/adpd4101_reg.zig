@@ -124,3 +124,20 @@ pub const PatternReg = packed struct(u16) {
     MOD_DISABLE: u4,
     LED_DISABLE: u4,
 };
+
+pub const AdcOffset1Reg = packed struct(u16) {
+    RESERVED: u2,
+    CH1_ADC_ADJUST: u14,
+};
+
+pub const AdcOffset2Reg = packed struct(u16) {
+    ZERO_ADJUST: u1,
+    RESERVED: u1,
+    CH2_ADC_ADJUST: u14,
+};
+
+pub const IntegrateOffsetReg = packed struct(u16) {
+    INTEG_OFFSET_31_25NS: u5,
+    INTEG_OFFSET_1_US: u8,
+    RESERVED: u3,
+};

@@ -30,7 +30,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .counts = .{
             .num_integrations = 0x1,
-            .num_repeats = 0x16,
+            .num_repeats = 0x32,
         },
         .mod_pulse = .{},
         .cathode = .{
@@ -38,11 +38,15 @@ pub const time_slots = [_]adpd.TimeSlot{
             .precondition = .TIA_VREF,
         },
         .afe_trim = .{
-            .tia_gain_ch1 = .KOHM12_5,
+            .tia_gain_ch1 = .KOHM200,
         },
         .pattern = .{
-            .led_disable = 0xA,
+            .subtract = 0xA,
             .reverse_integration = 0xA,
+        },
+        .adc_offset1 = .{},
+        .adc_offset2 = .{
+            .zero_adjust = 1,
         },
     },
 };
