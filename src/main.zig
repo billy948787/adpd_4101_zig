@@ -167,7 +167,7 @@ fn process_adpd_queue() void {
     var current_slot_index: usize = 0;
 
     var is_enable = false;
-
+    var prev_sum_status: i32 = -1;
     while (!should_exit.load(.seq_cst)) {
         if (need_stop.load(.seq_cst)) {
             if (is_enable) {
@@ -244,6 +244,23 @@ fn process_adpd_queue() void {
                 processed_data_queue_mutex.unlock();
 
                 data_index += size;
+
+                if (adpd_config.fifo_status_sum_enable and current_slot_index == adpd_config.time_slots.len - 1 and data_index < data.len) {
+                    var status_sum = data[data_index];
+
+                    data_index += 1;
+
+                    status_sum &= 0b00001111;
+
+                    if (prev_sum_status != -1) {
+                        const expected: u8 = @intCast((@as(u8, @intCast(prev_sum_status)) +% 1) & 0x0F);
+                        if (status_sum != expected) {
+                            stderr.print("Warning: FIFO status sum gap! expected {d}, got {d}\n", .{ expected, status_sum }) catch {};
+                        }
+                    }
+
+                    prev_sum_status = status_sum;
+                }
                 current_slot_index = (current_slot_index + 1) % adpd_config.time_slots.len;
             }
 
@@ -381,6 +398,7 @@ pub fn main() !void {
         adpd_config.use_ext_clock,
         adpd_config.fifo_threshold,
         adpd_config.gpio_id,
+        adpd_config.fifo_status_sum_enable,
     ) catch |err| {
         // std.debug.print("Failed to initialize ADPD4101 sensor: {}\n", .{err});
         return err;
@@ -393,24 +411,24 @@ pub fn main() !void {
         stderr.print("Failed to deinitialize GPIO: {}\n", .{err}) catch {};
     };
 
-    const result = imu_cpp.imu_init();
+    // const result = imu_cpp.imu_init();
 
-    if (result != 0) {
-        stderr.print("Failed to initialize IMU: error code {}\n", .{result}) catch {};
-        return;
-    }
-    defer imu_cpp.imu_deinit();
+    // if (result != 0) {
+    //     stderr.print("Failed to initialize IMU: error code {}\n", .{result}) catch {};
+    //     return;
+    // }
+    // defer imu_cpp.imu_deinit();
 
     const adpd_thread = try std.Thread.spawn(.{}, read_adpd_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
     defer adpd_thread.join();
     const process_adpd_thread = try std.Thread.spawn(.{}, process_adpd_queue, .{});
     defer process_adpd_thread.join();
-    const process_imu_thread = try std.Thread.spawn(.{}, process_imu_queue, .{});
-    defer process_imu_thread.join();
+    // const process_imu_thread = try std.Thread.spawn(.{}, process_imu_queue, .{});
+    // defer process_imu_thread.join();
     const bluetooth_thread = try std.Thread.spawn(.{}, send_data, .{});
     defer bluetooth_thread.join();
-    const imu_thread = try std.Thread.spawn(.{}, read_imu_data_loop, .{});
-    defer imu_thread.join();
+    // const imu_thread = try std.Thread.spawn(.{}, read_imu_data_loop, .{});
+    // defer imu_thread.join();
 
     while (!should_exit.load(.seq_cst)) {
         std.Thread.sleep(100 * std.time.ns_per_ms);

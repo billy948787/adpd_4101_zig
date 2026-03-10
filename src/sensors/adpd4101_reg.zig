@@ -126,18 +126,31 @@ pub const PatternReg = packed struct(u16) {
 };
 
 pub const AdcOffset1Reg = packed struct(u16) {
-    RESERVED: u2,
     CH1_ADC_ADJUST: u14,
+    RESERVED: u2,
 };
 
 pub const AdcOffset2Reg = packed struct(u16) {
-    ZERO_ADJUST: u1,
-    RESERVED: u1,
     CH2_ADC_ADJUST: u14,
+    RESERVED: u1,
+    ZERO_ADJUST: u1,
 };
 
 pub const IntegrateOffsetReg = packed struct(u16) {
     INTEG_OFFSET_31_25NS: u5,
     INTEG_OFFSET_1_US: u8,
     RESERVED: u3,
+};
+
+pub const FifoStatusBytesReg = packed struct(u16) {
+    ENA_STAT_SUM: u1,
+    ENA_STAT_D1: u1,
+    ENA_STAT_D2: u1,
+    ENA_STAT_L0: u1,
+    ENA_STAT_L1: u1,
+    ENA_STAT_LX: u1,
+    ENA_STAT_TC1: u1,
+    ENA_STAT_TC2: u1,
+    ENA_STAT_TCX: u1,
+    RESERVED: u7,
 };

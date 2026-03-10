@@ -16,6 +16,7 @@ pub const ADPD4101 = struct {
         comptime use_ext_clock: bool,
         comptime fifo_threshold: u16,
         comptime gpio_id: u32,
+        comptime fifo_status_sum_enable: bool,
     ) !ADPD4101 {
         const file = try std.fs.cwd().openFile(i2c_bus_path, .{ .mode = .read_write });
 
@@ -27,6 +28,7 @@ pub const ADPD4101 = struct {
         inline for (timeslots) |ts| {
             try config_time_slot(fd, dev_addr, ts);
         }
+        try set_fifo_status_bytes(fd, dev_addr, fifo_status_sum_enable);
         try set_interrupt(fd, dev_addr, gpio_id, fifo_threshold);
         try set_time_slot_freq(fd, dev_addr, oscillator, timeslot_freq_hz);
         try set_opmode(fd, dev_addr, @intCast(timeslots.len), false);
@@ -68,6 +70,25 @@ pub const ADPD4101 = struct {
         return self.buffer[0..to_read];
     }
 };
+
+fn set_fifo_status_bytes(fd: std.posix.fd_t, dev_addr: u8, status_sum_enable: bool) !void {
+    const fifo_status_bytes_reg = regs.FifoStatusBytesReg{
+        .ENA_STAT_SUM = @intFromBool(status_sum_enable),
+        .ENA_STAT_D1 = 0,
+        .ENA_STAT_D2 = 0,
+        .ENA_STAT_L0 = 0,
+        .ENA_STAT_L1 = 0,
+        .ENA_STAT_LX = 0,
+        .ENA_STAT_TC1 = 0,
+        .ENA_STAT_TC2 = 0,
+        .ENA_STAT_TCX = 0,
+        .RESERVED = 0,
+    };
+
+    var data: [2]u8 = undefined;
+    std.mem.writeInt(u16, &data, @bitCast(fifo_status_bytes_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, FIFO_STATUS_BYTES, @as([2]u8, data));
+}
 
 fn set_opmode(fd: std.posix.fd_t, dev_addr: u8, slot_count: u8, is_enable: bool) !void {
     const mode_value = regs.OpModeReg{
@@ -176,6 +197,7 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     const pattern_target_reg = PATTERN_A_REG + (slot.id[0] - 'A') * 0x20;
     const adc_offset1_target_reg = ADC_OFF1_A_REG + (slot.id[0] - 'A') * 0x20;
     const adc_offset2_target_reg = ADC_OFF2_A_REG + (slot.id[0] - 'A') * 0x20;
+    const integrate_offset_target_reg = INTEG_OS_A_REG + (slot.id[0] - 'A') * 0x20;
     // buffer
     var data: [2]u8 = undefined;
 
@@ -351,6 +373,15 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
         .reserved = 0,
     };
 
+    const integrate_offset_reg = regs.IntegrateOffsetReg{
+        .INTEG_OFFSET_1_US = slot.integrate_offset.integrate_offset_1_US,
+        .INTEG_OFFSET_31_25NS = slot.integrate_offset.integrate_offset_31_25_NS,
+        .RESERVED = 0,
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(integrate_offset_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, integrate_offset_target_reg, @as([2]u8, data));
+
     std.mem.writeInt(u16, &data, @bitCast(cathode_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, cathode_target_reg, @as([2]u8, data));
 }
@@ -400,6 +431,7 @@ pub fn get_led_id(comptime name: []const u8) u16 {
 const OPMODE_REG: u16 = 0x0010;
 const SYS_CTL_REG: u16 = 0x000F;
 const FIFO_STATUS_REG: u16 = 0x0000;
+const FIFO_STATUS_BYTES: u16 = 0x001E;
 const FIFO_DATA_REG: u16 = 0x002F;
 const TS_FREQ_REG: u16 = 0x000D;
 const TS_FREQH_REG: u16 = 0x000E;
@@ -605,7 +637,7 @@ pub const TimeSlot = struct {
     pattern: Pattern,
     adc_offset1: AdcOffset1,
     adc_offset2: AdcOffset2,
-    IntegrateOffset: IntegrateOffset,
+    integrate_offset: IntegrateOffset,
 };
 
 pub const InputPairMode = enum(u4) {
