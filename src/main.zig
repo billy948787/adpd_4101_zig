@@ -164,7 +164,13 @@ fn process_adpd_queue() void {
         timeslot_signal_size_arr[i] = @intCast(slot.data_format.sig_size);
     }
 
+    const period_us: i64 = @divTrunc(1_000_000, @as(i64, adpd_config.timeslot_freq_hz));
+
     var current_slot_index: usize = 0;
+
+    var first_sample_time_us: i64 = 0;
+    var sample_counter: i64 = 0;
+    var time_initialized = false;
 
     var is_enable = false;
     var prev_sum_status: i32 = -1;
@@ -172,6 +178,7 @@ fn process_adpd_queue() void {
         if (need_stop.load(.seq_cst)) {
             if (is_enable) {
                 is_enable = false;
+                time_initialized = false;
                 std.debug.print("Sensor disabled, pausing ADPD data processing.\n", .{});
             }
             std.Thread.sleep(100 * std.time.ns_per_ms);
@@ -215,16 +222,21 @@ fn process_adpd_queue() void {
                     },
                 }
 
+                if (!time_initialized) {
+                    first_sample_time_us = std.time.microTimestamp();
+                    time_initialized = true;
+                }
+
                 // stdout.print("original data {any}\n", .{signal_data_raw}) catch |err| {
                 //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
                 // };
 
                 const casted_value: i64 = @intCast(signal_value);
-                const timestamp = std.time.microTimestamp();
+                const timestamp = first_sample_time_us + sample_counter * period_us;
 
-                // stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
-                //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
-                // };
+                stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
+                    stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
+                };
 
                 processed_data_queue_mutex.lock();
                 processed_data_queue.append(gpa.allocator(), ProcessedData{
@@ -260,6 +272,9 @@ fn process_adpd_queue() void {
                     }
 
                     prev_sum_status = status_sum;
+                }
+                if (current_slot_index == adpd_config.time_slots.len - 1) {
+                    sample_counter += 1;
                 }
                 current_slot_index = (current_slot_index + 1) % adpd_config.time_slots.len;
             }

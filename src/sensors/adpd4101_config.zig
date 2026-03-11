@@ -7,7 +7,7 @@ pub const i2c_device_path = "/dev/i2c-3";
 pub const device_address: u8 = 0x24;
 pub const use_ext_clock = false;
 pub const gpio_id: u32 = 0;
-pub const fifo_threshold: u16 = 5;
+pub const fifo_threshold: u16 = 20;
 pub const fifo_status_sum_enable = true;
 pub const time_slots = [_]adpd.TimeSlot{
     .{
@@ -31,7 +31,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .counts = .{
             .num_integrations = 0x1,
-            .num_repeats = 0x16,
+            .num_repeats = 0x30,
         },
         .mod_pulse = .{},
         .cathode = .{
@@ -42,12 +42,12 @@ pub const time_slots = [_]adpd.TimeSlot{
             .tia_gain_ch1 = .KOHM200,
         },
         .pattern = .{
-            // .subtract = 0xA,
-            // .reverse_integration = 0xA,
+            .subtract = 0xA,
+            .reverse_integration = 0xA,
         },
         .adc_offset1 = .{},
         .adc_offset2 = .{
-            // .zero_adjust = 1,
+            .zero_adjust = 1,
         },
         .integrate_offset = .{
             // .integrate_offset_1_US     = 0x48,
