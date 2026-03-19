@@ -54,4 +54,180 @@ pub const time_slots = [_]adpd.TimeSlot{
             // .integrate_offset_31_25_NS = 0x05,
         },
     },
+    .{
+        .id = "B",
+        .leds = &[_]adpd.Led{
+            .{
+                .id = adpd.get_led_id("1A"),
+                .current = 0x3f,
+            },
+        },
+        .data_format = .{
+            .lit_size = 0x0,
+            .sig_size = 0x4,
+            .dark_size = 0x0,
+        }, // default
+        .led_pulse = .{
+            .pulse_width_us = 0x2,
+        }, // default
+        .input_config = .{
+            .pair_12 = .IN1_Ch1,
+        },
+        .counts = .{
+            .num_integrations = 0x1,
+            .num_repeats = 0x30,
+        },
+        .mod_pulse = .{},
+        .cathode = .{
+            .vc1_select = .TIA_VREF_PLUS_215mV,
+            .precondition = .TIA_VREF,
+        },
+        .afe_trim = .{
+            .tia_gain_ch1 = .KOHM200,
+        },
+        .pattern = .{
+            .subtract = 0xA,
+            .reverse_integration = 0xA,
+        },
+        .adc_offset1 = .{},
+        .adc_offset2 = .{
+            .zero_adjust = 1,
+        },
+        .integrate_offset = .{
+            // .integrate_offset_1_US     = 0x48,
+            // .integrate_offset_31_25_NS = 0x05,
+        },
+    },
+    .{
+        .id = "C",
+        .leds = &[_]adpd.Led{
+            .{
+                .id = adpd.get_led_id("1A"),
+                .current = 0x3f,
+            },
+        },
+        .data_format = .{
+            .lit_size = 0x0,
+            .sig_size = 0x4,
+            .dark_size = 0x0,
+        }, // default
+        .led_pulse = .{
+            .pulse_width_us = 0x2,
+        }, // default
+        .input_config = .{
+            .pair_12 = .IN1_Ch1,
+        },
+        .counts = .{
+            .num_integrations = 0x1,
+            .num_repeats = 0x30,
+        },
+        .mod_pulse = .{},
+        .cathode = .{
+            .vc1_select = .TIA_VREF_PLUS_215mV,
+            .precondition = .TIA_VREF,
+        },
+        .afe_trim = .{
+            .tia_gain_ch1 = .KOHM200,
+        },
+        .pattern = .{
+            .subtract = 0xA,
+            .reverse_integration = 0xA,
+        },
+        .adc_offset1 = .{},
+        .adc_offset2 = .{
+            .zero_adjust = 1,
+        },
+        .integrate_offset = .{
+            // .integrate_offset_1_US     = 0x48,
+            // .integrate_offset_31_25_NS = 0x05,
+        },
+    },
+    .{
+        .id = "D",
+        .leds = &[_]adpd.Led{
+            .{
+                .id = adpd.get_led_id("1A"),
+                .current = 0x3f,
+            },
+        },
+        .data_format = .{
+            .lit_size = 0x0,
+            .sig_size = 0x4,
+            .dark_size = 0x0,
+        }, // default
+        .led_pulse = .{
+            .pulse_width_us = 0x2,
+        }, // default
+        .input_config = .{
+            .pair_12 = .IN1_Ch1,
+        },
+        .counts = .{
+            .num_integrations = 0x1,
+            .num_repeats = 0x30,
+        },
+        .mod_pulse = .{},
+        .cathode = .{
+            .vc1_select = .TIA_VREF_PLUS_215mV,
+            .precondition = .TIA_VREF,
+        },
+        .afe_trim = .{
+            .tia_gain_ch1 = .KOHM200,
+        },
+        .pattern = .{
+            .subtract = 0xA,
+            .reverse_integration = 0xA,
+        },
+        .adc_offset1 = .{},
+        .adc_offset2 = .{
+            .zero_adjust = 1,
+        },
+        .integrate_offset = .{
+            // .integrate_offset_1_US     = 0x48,
+            // .integrate_offset_31_25_NS = 0x05,
+        },
+    },
+    .{
+        .id = "E",
+        .leds = &[_]adpd.Led{
+            .{
+                .id = adpd.get_led_id("1A"),
+                .current = 0x3f,
+            },
+        },
+        .data_format = .{
+            .lit_size = 0x0,
+            .sig_size = 0x4,
+            .dark_size = 0x0,
+        }, // default
+        .led_pulse = .{
+            .pulse_width_us = 0x2,
+        }, // default
+        .input_config = .{
+            .pair_12 = .IN1_Ch1,
+        },
+        .counts = .{
+            .num_integrations = 0x1,
+            .num_repeats = 0x30,
+        },
+        .mod_pulse = .{},
+        .cathode = .{
+            .vc1_select = .TIA_VREF_PLUS_215mV,
+            .precondition = .TIA_VREF,
+        },
+        .afe_trim = .{
+            .tia_gain_ch1 = .KOHM200,
+        },
+        .pattern = .{
+            .subtract = 0xA,
+            .reverse_integration = 0xA,
+        },
+        .adc_offset1 = .{},
+        .adc_offset2 = .{
+            .zero_adjust = 1,
+        },
+        .integrate_offset = .{
+            // .integrate_offset_1_US     = 0x48,
+            // .integrate_offset_31_25_NS = 0x05,
+        },
+    },
 };

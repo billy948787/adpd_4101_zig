@@ -19,7 +19,7 @@ var should_exit = std.atomic.Value(bool).init(false);
 var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
 var raw_adpd_data_queue: std.ArrayList(u8) = undefined;
 var raw_imu_data_queue: std.ArrayList(imu_cpp.ImuData) = undefined;
-var processed_data_queue: std.ArrayList(ProcessedData) = undefined;
+var processed_data_queue: std.ArrayList(ProcessedData(adpd_config.time_slots.len)) = undefined;
 
 var stdout_buffer: [1024]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
@@ -43,6 +43,9 @@ fn send_data() void {
         stderr.print("Error initializing Bluetooth output: {}\n", .{err}) catch {};
         return;
     };
+    var fbs_buffer: [512]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&fbs_buffer);
+    const writer = fbs.writer();
     defer bt_output.deinit() catch |err| {
         stderr.print("Error deinitializing Bluetooth output: {}\n", .{err}) catch {};
     };
@@ -62,28 +65,37 @@ fn send_data() void {
         if (processed_data_queue.items.len > 0) {
             const data = processed_data_queue.items;
             for (data) |item| {
-                var buffer: [512]u8 = undefined;
-                const written = std.fmt.bufPrint(
-                    &buffer,
-                    "{d},{s},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n",
-                    .{
-                        serial_number.load(.seq_cst),
-                        item.sensor_type,
-                        item.sensor_timestamp,
-                        item.host_monotonic_timestamp,
-                        item.ppg_value,
-                        item.ax,
-                        item.ay,
-                        item.az,
-                        item.gx,
-                        item.gy,
-                        item.gz,
-                    },
-                ) catch |err| {
-                    stderr.print("Error formatting data for Bluetooth: {}\n", .{err}) catch {};
+                fbs.reset();
+                writer.print("{d},{s},{d},{d}", .{
+                    serial_number.load(.seq_cst),
+                    item.sensor_type,
+                    item.sensor_timestamp,
+                    item.host_monotonic_timestamp,
+                }) catch |err| {
+                    stderr.print("Error formatting header: {}\n", .{err}) catch {};
                     continue;
                 };
-                bt_output.write(written) catch |err| {
+
+                for (item.ppg_value) |ppg| {
+                    writer.print(",{d}", .{ppg}) catch |err| {
+                        stderr.print("Error formatting PPG value: {}\n", .{err}) catch {};
+                        continue;
+                    };
+                }
+
+                writer.print(",{d},{d},{d},{d},{d},{d}\n", .{
+                    item.ax,
+                    item.ay,
+                    item.az,
+                    item.gx,
+                    item.gy,
+                    item.gz,
+                }) catch |err| {
+                    stderr.print("Error formatting IMU data: {}\n", .{err}) catch {};
+                    continue;
+                };
+
+                bt_output.write(fbs.getWritten()) catch |err| {
                     stderr.print("Error writing data to Bluetooth: {}\n", .{err}) catch {};
                     bt_output.closeClient() catch |close_err| {
                         stderr.print("Error closing Bluetooth client socket: {}\n", .{close_err}) catch {};
@@ -156,7 +168,6 @@ fn process_imu_queue() void {
     }
 }
 
-// TODO: Change the timestamp acording to the sensor hz.
 fn process_adpd_queue() void {
     var timeslot_signal_size_arr: [adpd_config.time_slots.len]usize = undefined;
 
@@ -191,6 +202,8 @@ fn process_adpd_queue() void {
         }
         raw_adpd_queue_mutex.lock();
         defer raw_adpd_queue_mutex.unlock();
+
+        var processed_data: ProcessedData(adpd_config.time_slots.len) = undefined;
 
         if (raw_adpd_data_queue.items.len > 0) {
             const data = raw_adpd_data_queue.items;
@@ -238,22 +251,7 @@ fn process_adpd_queue() void {
                     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
                 };
 
-                processed_data_queue_mutex.lock();
-                processed_data_queue.append(gpa.allocator(), ProcessedData{
-                    .sensor_type = "PPG",
-                    .sensor_timestamp = @intCast(timestamp),
-                    .host_monotonic_timestamp = monotonicNs(),
-                    .ppg_value = casted_value - 8192,
-                    .ax = 0,
-                    .ay = 0,
-                    .az = 0,
-                    .gx = 0,
-                    .gy = 0,
-                    .gz = 0,
-                }) catch |err| {
-                    stderr.print("Error appending processed data: {}\n", .{err}) catch {};
-                };
-                processed_data_queue_mutex.unlock();
+                processed_data.ppg_value[current_slot_index] = casted_value - 8192;
 
                 data_index += size;
 
@@ -274,6 +272,15 @@ fn process_adpd_queue() void {
                     prev_sum_status = status_sum;
                 }
                 if (current_slot_index == adpd_config.time_slots.len - 1) {
+                    processed_data_queue_mutex.lock();
+                    processed_data.sensor_type = "ADPD";
+                    processed_data.sensor_timestamp = timestamp;
+                    processed_data.host_monotonic_timestamp = monotonicNs();
+                    processed_data_queue.append(gpa.allocator(), processed_data) catch |err| {
+                        stderr.print("Error appending processed ADPD data to main queue: {}\n", .{err}) catch {};
+                    };
+                    processed_data_queue_mutex.unlock();
+
                     sample_counter += 1;
                 }
                 current_slot_index = (current_slot_index + 1) % adpd_config.time_slots.len;
@@ -401,7 +408,7 @@ pub fn main() !void {
     raw_imu_data_queue = try std.ArrayList(imu_cpp.ImuData).initCapacity(allocator, 1024);
     defer raw_imu_data_queue.deinit(allocator);
 
-    processed_data_queue = try std.ArrayList(ProcessedData).initCapacity(allocator, 1024);
+    processed_data_queue = try std.ArrayList(ProcessedData(adpd_config.time_slots.len)).initCapacity(allocator, 1024);
     defer processed_data_queue.deinit(allocator);
 
     var adpd4101_sensor = sensor.ADPD4101Sensor.init(
@@ -450,19 +457,21 @@ pub fn main() !void {
     }
 }
 
-const ProcessedData = struct {
-    sensor_type: []const u8,
-    sensor_timestamp: i64,
-    host_monotonic_timestamp: u64,
-    ppg_value: i64,
+pub fn ProcessedData(comptime num_timeslots: usize) type {
+    return struct {
+        sensor_type: []const u8,
+        sensor_timestamp: i64,
+        host_monotonic_timestamp: u64,
+        ppg_value: [num_timeslots]i64,
 
-    ax: i16,
-    ay: i16,
-    az: i16,
-    gx: i16,
-    gy: i16,
-    gz: i16,
-};
+        ax: i16,
+        ay: i16,
+        az: i16,
+        gx: i16,
+        gy: i16,
+        gz: i16,
+    };
+}
 
 fn monotonicNs() u64 {
     const ts = std.posix.clock_gettime(std.posix.CLOCK.MONOTONIC) catch return 0;
