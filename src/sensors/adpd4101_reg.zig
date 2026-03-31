@@ -162,3 +162,13 @@ pub const TimeslotCtrlReg = packed struct(u16) {
     CH2_EN: u1,
     SUBSAMPLE: u1,
 };
+
+pub const IntegrationSetupReg = packed struct(u16) {
+    INTEG_WIDTH: u5,
+    RESERVED: u1,
+    ADC_COUNT: u2,
+    CH1_AMP_DISABLE: u3,
+    AFE_INT_C_BUF: u1,
+    CH2_AMP_DISABLE: u3,
+    SINGLE_INTEG: u1,
+};

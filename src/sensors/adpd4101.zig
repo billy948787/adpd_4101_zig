@@ -205,6 +205,7 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     const adc_offset2_target_reg = ADC_OFF2_A_REG + (slot.id[0] - 'A') * 0x20;
     const integrate_offset_target_reg = INTEG_OS_A_REG + (slot.id[0] - 'A') * 0x20;
     const timeslot_ctrl_target_reg = TS_CTRL_A_REG + (slot.id[0] - 'A') * 0x20;
+    const integration_setup_target_reg = INTEG_SETUP_A_REG + (slot.id[0] - 'A') * 0x20;
     // buffer
     var data: [2]u8 = undefined;
 
@@ -248,6 +249,19 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     try i2c.i2cWriteReg(fd, dev_addr, input_target_reg, @as([2]u8, data));
     std.mem.writeInt(u16, &data, @bitCast(ts_ctrl_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, ts_ctrl_target_reg, @as([2]u8, data));
+
+    const integration_setup_reg = regs.IntegrationSetupReg{
+        .ADC_COUNT = slot.integration_setup.adc_count,
+        .AFE_INT_C_BUF = slot.integration_setup.afe_int_c_buf,
+        .CH1_AMP_DISABLE = slot.integration_setup.ch1_amplifier_disabled,
+        .CH2_AMP_DISABLE = slot.integration_setup.ch2_amplifier_disabled,
+        .INTEG_WIDTH = slot.integration_setup.integration_width,
+        .RESERVED = 0,
+        .SINGLE_INTEG = slot.integration_setup.single_integrator_pulse,
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(integration_setup_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, integration_setup_target_reg, @as([2]u8, data));
 
     // confit afe trim
     const afe_trim_reg = regs.AfeTrimReg{
@@ -647,6 +661,19 @@ const TS_CTRL_I: u16 = 0x0200;
 const TS_CTRL_J: u16 = 0x0220;
 const TS_CTRL_K: u16 = 0x0240;
 const TS_CTRL_L: u16 = 0x0260;
+// integraion setup register
+const INTEG_SETUP_A_REG: u16 = 0x010A;
+const INTEG_SETUP_B_REG: u16 = 0x012A;
+const INTEG_SETUP_C_REG: u16 = 0x014A;
+const INTEG_SETUP_D_REG: u16 = 0x016A;
+const INTEG_SETUP_E_REG: u16 = 0x018A;
+const INTEG_SETUP_F_REG: u16 = 0x01AA;
+const INTEG_SETUP_G_REG: u16 = 0x01CA;
+const INTEG_SETUP_H_REG: u16 = 0x01EA;
+const INTEG_SETUP_I_REG: u16 = 0x020A;
+const INTEG_SETUP_J_REG: u16 = 0x022A;
+const INTEG_SETUP_K_REG: u16 = 0x024A;
+const INTEG_SETUP_L_REG: u16 = 0x026A;
 // gpio register
 const GPIO_CFG_REG: u16 = 0x0022;
 const GPIO_01_REG: u16 = 0x0023;
@@ -670,6 +697,16 @@ pub const TimeSlot = struct {
     adc_offset2: AdcOffset2,
     integrate_offset: IntegrateOffset,
     timeslot_ctrl: TimeslotCtrl,
+    integration_setup: IntegraionSetup,
+};
+
+pub const IntegraionSetup = struct {
+    single_integrator_pulse: u1 = 0,
+    ch2_amplifier_disabled: u3 = 0,
+    afe_int_c_buf: u1 = 0,
+    ch1_amplifier_disabled: u3 = 0,
+    adc_count: u2 = 0,
+    integration_width: u5 = 0x3,
 };
 
 pub const InputPairMode = enum(u4) {

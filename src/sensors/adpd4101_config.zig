@@ -15,7 +15,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         .leds = &[_]adpd.Led{
             .{
                 .id = adpd.get_led_id("1A"),
-                .current = 0x3f,
+                .current = 0x2f,
             },
         },
         .data_format = .{
@@ -24,7 +24,7 @@ pub const time_slots = [_]adpd.TimeSlot{
             .dark_size = 0x0,
         }, // default
         .led_pulse = .{
-            .pulse_width_us = 0x2,
+            .pulse_width_us = 0x1,
         }, // default
         .input_config = .{
             .pair_12 = .IN1_Ch1,
@@ -56,6 +56,9 @@ pub const time_slots = [_]adpd.TimeSlot{
         .integrate_offset = .{
             // .integrate_offset_1_US = 0xD6,
             // .integrate_offset_31_25_NS = 0x16,
+        },
+        .integration_setup = .{
+            .integration_width = 0x2,
         },
     },
     .{
@@ -88,7 +91,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .afe_trim = .{
             .tia_ceil_detect = 1,
-            .tia_gain_ch1 = .KOHM12_5,
+            .tia_gain_ch1 = .KOHM50,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -104,6 +107,9 @@ pub const time_slots = [_]adpd.TimeSlot{
         .integrate_offset = .{
             // .integrate_offset_1_US = 0xD6,
             // .integrate_offset_31_25_NS = 0x16,
+        },
+        .integration_setup = .{
+            .integration_width = 0x3,
         },
     },
     .{
@@ -136,7 +142,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .afe_trim = .{
             .tia_ceil_detect = 1,
-            .tia_gain_ch1 = .KOHM12_5,
+            .tia_gain_ch1 = .KOHM50,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -152,6 +158,9 @@ pub const time_slots = [_]adpd.TimeSlot{
         .integrate_offset = .{
             // .integrate_offset_1_US = 0xD6,
             // .integrate_offset_31_25_NS = 0x16,
+        },
+        .integration_setup = .{
+            .integration_width = 0x3,
         },
     },
     .{
@@ -184,7 +193,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .afe_trim = .{
             .tia_ceil_detect = 1,
-            .tia_gain_ch1 = .KOHM12_5,
+            .tia_gain_ch1 = .KOHM50,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -200,6 +209,9 @@ pub const time_slots = [_]adpd.TimeSlot{
         .integrate_offset = .{
             // .integrate_offset_1_US = 0xD6,
             // .integrate_offset_31_25_NS = 0x16,
+        },
+        .integration_setup = .{
+            .integration_width = 0x3,
         },
     },
     .{
@@ -232,7 +244,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .afe_trim = .{
             .tia_ceil_detect = 1,
-            .tia_gain_ch1 = .KOHM12_5,
+            .tia_gain_ch1 = .KOHM50,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -248,6 +260,9 @@ pub const time_slots = [_]adpd.TimeSlot{
         .integrate_offset = .{
             // .integrate_offset_1_US = 0xD6,
             // .integrate_offset_31_25_NS = 0x16,
+        },
+        .integration_setup = .{
+            .integration_width = 0x3,
         },
     },
 };
