@@ -154,3 +154,11 @@ pub const FifoStatusBytesReg = packed struct(u16) {
     ENA_STAT_TCX: u1,
     RESERVED: u7,
 };
+
+pub const TimeslotCtrlReg = packed struct(u16) {
+    TIMESLOT_OFFSET: u10,
+    INPUT_R_SELECT: u2,
+    SAMPLE_TYPE: u2,
+    CH2_EN: u1,
+    SUBSAMPLE: u1,
+};

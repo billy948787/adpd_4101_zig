@@ -67,6 +67,12 @@ pub const ADPD4101 = struct {
 
         try i2c.i2cKeepReadReg(self.fd, self.dev_addr, FIFO_DATA_REG, self.buffer[0..to_read]);
 
+        const tia_ceil = try i2c.I2cReadReg(self.fd, self.dev_addr, 0x0004);
+
+        if (tia_ceil[0] > 0 or tia_ceil[1] > 0) {
+            std.debug.print("TIA ceil: {any}\n", .{tia_ceil});
+        }
+
         return self.buffer[0..to_read];
     }
 };
@@ -198,6 +204,7 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     const adc_offset1_target_reg = ADC_OFF1_A_REG + (slot.id[0] - 'A') * 0x20;
     const adc_offset2_target_reg = ADC_OFF2_A_REG + (slot.id[0] - 'A') * 0x20;
     const integrate_offset_target_reg = INTEG_OS_A_REG + (slot.id[0] - 'A') * 0x20;
+    const timeslot_ctrl_target_reg = TS_CTRL_A_REG + (slot.id[0] - 'A') * 0x20;
     // buffer
     var data: [2]u8 = undefined;
 
@@ -283,6 +290,17 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
 
     std.mem.writeInt(u16, &data, @bitCast(mod_pulse_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, mod_pulse_target_reg, @as([2]u8, data));
+
+    const timeslot_ctrl_reg = regs.TsCtrlReg{
+        .ch2_enable = slot.timeslot_ctrl.channel2_enable,
+        .input_resister_select = @intFromEnum(slot.timeslot_ctrl.input_resister_select),
+        .sample_type = @intFromEnum(slot.timeslot_ctrl.sample_type),
+        .subsample = slot.timeslot_ctrl.subsample,
+        .timeslot_offset = slot.timeslot_ctrl.timeslot_offset,
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(timeslot_ctrl_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, timeslot_ctrl_target_reg, @as([2]u8, data));
 
     const pattern_reg = regs.PatternReg{
         .LED_DISABLE = slot.pattern.led_disable,
@@ -616,6 +634,19 @@ const INTEG_OS_I_REG: u16 = 0x020B;
 const INTEG_OS_J_REG: u16 = 0x022B;
 const INTEG_OS_K_REG: u16 = 0x024B;
 const INTEG_OS_L_REG: u16 = 0x026B;
+// ts_ctrl register
+const TS_CTRL_A: u16 = 0x0100;
+const TS_CTRL_B: u16 = 0x0120;
+const TS_CTRL_C: u16 = 0x0140;
+const TS_CTRL_D: u16 = 0x0160;
+const TS_CTRL_E: u16 = 0x0180;
+const TS_CTRL_F: u16 = 0x01A0;
+const TS_CTRL_G: u16 = 0x01C0;
+const TS_CTRL_H: u16 = 0x01E0;
+const TS_CTRL_I: u16 = 0x0200;
+const TS_CTRL_J: u16 = 0x0220;
+const TS_CTRL_K: u16 = 0x0240;
+const TS_CTRL_L: u16 = 0x0260;
 // gpio register
 const GPIO_CFG_REG: u16 = 0x0022;
 const GPIO_01_REG: u16 = 0x0023;
@@ -638,6 +669,7 @@ pub const TimeSlot = struct {
     adc_offset1: AdcOffset1,
     adc_offset2: AdcOffset2,
     integrate_offset: IntegrateOffset,
+    timeslot_ctrl: TimeslotCtrl,
 };
 
 pub const InputPairMode = enum(u4) {
@@ -707,12 +739,31 @@ pub const AdcOffset2 = struct {
     ch2_adc_adjust: u14 = 0,
     zero_adjust: u1 = 0,
 };
+pub const TimeslotCtrl = struct {
+    input_resister_select: InputRSelect = .OHM_500,
+    timeslot_offset: u10 = 0,
+    sample_type: SampleType = .STANDARD,
+    channel2_enable: u1 = 0,
+    subsample: u1 = 0,
+};
 
 pub const Pattern = struct {
     led_disable: u4 = 0x0,
     mod_disable: u4 = 0x0,
     subtract: u4 = 0x0,
     reverse_integration: u4 = 0x0,
+};
+
+pub const SampleType = enum(u2) {
+    STANDARD = 0b00,
+    ONE_REGION_DIGI_INTEGRATION = 0b01,
+    TWO_REGION_DIGI_INTEGRATION = 0b10,
+    IMPULSE_RESPONSE = 0b11,
+};
+
+pub const InputRSelect = enum(u2) {
+    OHM_500 = 0b00,
+    KOHM_6_5 = 0b01,
 };
 
 pub const Precondition = enum(u3) {

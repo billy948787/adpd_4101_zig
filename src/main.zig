@@ -205,6 +205,8 @@ fn process_adpd_queue() void {
 
         var processed_data: ProcessedData(adpd_config.time_slots.len) = undefined;
 
+        processed_data.sensor_type = "PPG";
+
         if (raw_adpd_data_queue.items.len > 0) {
             const data = raw_adpd_data_queue.items;
             var data_index: usize = 0;
@@ -247,9 +249,9 @@ fn process_adpd_queue() void {
                 const casted_value: i64 = @intCast(signal_value);
                 const timestamp = first_sample_time_us + sample_counter * period_us;
 
-                stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
-                    stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
-                };
+                // stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
+                //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
+                // };
 
                 processed_data.ppg_value[current_slot_index] = casted_value - 8192;
 
@@ -273,7 +275,7 @@ fn process_adpd_queue() void {
                 }
                 if (current_slot_index == adpd_config.time_slots.len - 1) {
                     processed_data_queue_mutex.lock();
-                    processed_data.sensor_type = "ADPD";
+
                     processed_data.sensor_timestamp = timestamp;
                     processed_data.host_monotonic_timestamp = monotonicNs();
                     processed_data_queue.append(gpa.allocator(), processed_data) catch |err| {

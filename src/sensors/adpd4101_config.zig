@@ -31,7 +31,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .counts = .{
             .num_integrations = 0x1,
-            .num_repeats = 0x30,
+            .num_repeats = 0x32,
         },
         .mod_pulse = .{},
         .cathode = .{
@@ -39,7 +39,8 @@ pub const time_slots = [_]adpd.TimeSlot{
             .precondition = .TIA_VREF,
         },
         .afe_trim = .{
-            .tia_gain_ch1 = .KOHM200,
+            .tia_ceil_detect = 1,
+            .tia_gain_ch1 = .KOHM12_5,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -49,16 +50,19 @@ pub const time_slots = [_]adpd.TimeSlot{
         .adc_offset2 = .{
             .zero_adjust = 1,
         },
+        .timeslot_ctrl = .{
+            .input_resister_select = .KOHM_6_5,
+        },
         .integrate_offset = .{
-            // .integrate_offset_1_US     = 0x48,
-            // .integrate_offset_31_25_NS = 0x05,
+            // .integrate_offset_1_US = 0xD6,
+            // .integrate_offset_31_25_NS = 0x16,
         },
     },
     .{
         .id = "B",
         .leds = &[_]adpd.Led{
             .{
-                .id = adpd.get_led_id("1A"),
+                .id = adpd.get_led_id("2A"),
                 .current = 0x3f,
             },
         },
@@ -75,7 +79,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .counts = .{
             .num_integrations = 0x1,
-            .num_repeats = 0x30,
+            .num_repeats = 0x32,
         },
         .mod_pulse = .{},
         .cathode = .{
@@ -83,7 +87,8 @@ pub const time_slots = [_]adpd.TimeSlot{
             .precondition = .TIA_VREF,
         },
         .afe_trim = .{
-            .tia_gain_ch1 = .KOHM200,
+            .tia_ceil_detect = 1,
+            .tia_gain_ch1 = .KOHM12_5,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -93,16 +98,19 @@ pub const time_slots = [_]adpd.TimeSlot{
         .adc_offset2 = .{
             .zero_adjust = 1,
         },
+        .timeslot_ctrl = .{
+            .input_resister_select = .KOHM_6_5,
+        },
         .integrate_offset = .{
-            // .integrate_offset_1_US     = 0x48,
-            // .integrate_offset_31_25_NS = 0x05,
+            // .integrate_offset_1_US = 0xD6,
+            // .integrate_offset_31_25_NS = 0x16,
         },
     },
     .{
         .id = "C",
         .leds = &[_]adpd.Led{
             .{
-                .id = adpd.get_led_id("1A"),
+                .id = adpd.get_led_id("3A"),
                 .current = 0x3f,
             },
         },
@@ -119,7 +127,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .counts = .{
             .num_integrations = 0x1,
-            .num_repeats = 0x30,
+            .num_repeats = 0x32,
         },
         .mod_pulse = .{},
         .cathode = .{
@@ -127,7 +135,8 @@ pub const time_slots = [_]adpd.TimeSlot{
             .precondition = .TIA_VREF,
         },
         .afe_trim = .{
-            .tia_gain_ch1 = .KOHM200,
+            .tia_ceil_detect = 1,
+            .tia_gain_ch1 = .KOHM12_5,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -137,16 +146,19 @@ pub const time_slots = [_]adpd.TimeSlot{
         .adc_offset2 = .{
             .zero_adjust = 1,
         },
+        .timeslot_ctrl = .{
+            .input_resister_select = .KOHM_6_5,
+        },
         .integrate_offset = .{
-            // .integrate_offset_1_US     = 0x48,
-            // .integrate_offset_31_25_NS = 0x05,
+            // .integrate_offset_1_US = 0xD6,
+            // .integrate_offset_31_25_NS = 0x16,
         },
     },
     .{
         .id = "D",
         .leds = &[_]adpd.Led{
             .{
-                .id = adpd.get_led_id("1A"),
+                .id = adpd.get_led_id("4A"),
                 .current = 0x3f,
             },
         },
@@ -163,7 +175,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .counts = .{
             .num_integrations = 0x1,
-            .num_repeats = 0x30,
+            .num_repeats = 0x32,
         },
         .mod_pulse = .{},
         .cathode = .{
@@ -171,7 +183,8 @@ pub const time_slots = [_]adpd.TimeSlot{
             .precondition = .TIA_VREF,
         },
         .afe_trim = .{
-            .tia_gain_ch1 = .KOHM200,
+            .tia_ceil_detect = 1,
+            .tia_gain_ch1 = .KOHM12_5,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -181,16 +194,19 @@ pub const time_slots = [_]adpd.TimeSlot{
         .adc_offset2 = .{
             .zero_adjust = 1,
         },
+        .timeslot_ctrl = .{
+            .input_resister_select = .KOHM_6_5,
+        },
         .integrate_offset = .{
-            // .integrate_offset_1_US     = 0x48,
-            // .integrate_offset_31_25_NS = 0x05,
+            // .integrate_offset_1_US = 0xD6,
+            // .integrate_offset_31_25_NS = 0x16,
         },
     },
     .{
         .id = "E",
         .leds = &[_]adpd.Led{
             .{
-                .id = adpd.get_led_id("1A"),
+                .id = adpd.get_led_id("1B"),
                 .current = 0x3f,
             },
         },
@@ -207,7 +223,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .counts = .{
             .num_integrations = 0x1,
-            .num_repeats = 0x30,
+            .num_repeats = 0x32,
         },
         .mod_pulse = .{},
         .cathode = .{
@@ -215,7 +231,8 @@ pub const time_slots = [_]adpd.TimeSlot{
             .precondition = .TIA_VREF,
         },
         .afe_trim = .{
-            .tia_gain_ch1 = .KOHM200,
+            .tia_ceil_detect = 1,
+            .tia_gain_ch1 = .KOHM12_5,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -225,9 +242,12 @@ pub const time_slots = [_]adpd.TimeSlot{
         .adc_offset2 = .{
             .zero_adjust = 1,
         },
+        .timeslot_ctrl = .{
+            .input_resister_select = .KOHM_6_5,
+        },
         .integrate_offset = .{
-            // .integrate_offset_1_US     = 0x48,
-            // .integrate_offset_31_25_NS = 0x05,
+            // .integrate_offset_1_US = 0xD6,
+            // .integrate_offset_31_25_NS = 0x16,
         },
     },
 };
