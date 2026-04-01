@@ -24,8 +24,12 @@ static constexpr uint8_t WHO_AM_I = 0x0F;
 // ── Accel (XM) 暫存器 ─────────────────────────────────────────────────────
 static constexpr uint8_t CTRL_REG1_XM = 0x20; // ODR / 軸啟用
 static constexpr uint8_t CTRL_REG4_XM = 0x23; // full-scale
+static constexpr uint8_t CTRL_REG5_XM = 0x24; // Mag ODR
+static constexpr uint8_t CTRL_REG6_XM = 0x25; // Mag full-scale
+static constexpr uint8_t CTRL_REG7_XM = 0x26; // Mag mode
 static constexpr uint8_t STATUS_REG_A = 0x27; // bit3 = ZYXDA（新資料就緒）
 static constexpr uint8_t OUT_X_L_A = 0x28;    // Accel 輸出起點
+static constexpr uint8_t OUT_X_L_M = 0x08;    // Mag 輸出起點
 
 // ── Gyro (G) 暫存器 ───────────────────────────────────────────────────────
 static constexpr uint8_t CTRL_REG1_G = 0x20;   // 電源 / ODR / 軸啟用
@@ -113,6 +117,7 @@ static void fill_no_data(ImuData &d) {
   d.timestamp_s = now_s();
   d.ax = d.ay = d.az = -1;
   d.gx = d.gy = d.gz = -1;
+  d.mx = d.my = d.mz = -1;
   d.status = -1;
 }
 
@@ -168,11 +173,19 @@ int imu_enable() {
   try {
     // Accel: ODR=100Hz，全軸啟用
     g_i2c->write_reg(ADDR_XM, CTRL_REG1_XM, 0x57);
-    g_i2c->write_reg(ADDR_XM, CTRL_REG4_XM, 0x00);
+    // Enable BDU to avoid reading torn high/low bytes across updates.
+    // CTRL_REG4_XM: BDU bit = 3
+    g_i2c->write_reg(ADDR_XM, CTRL_REG4_XM, 0x08);
 
     // Gyro: 正常模式，95Hz，全軸啟用
     g_i2c->write_reg(ADDR_G, CTRL_REG1_G, 0x0F);
-    g_i2c->write_reg(ADDR_G, CTRL_REG4_G, 0x00);
+    // CTRL_REG4_G: BDU bit = 7
+    g_i2c->write_reg(ADDR_G, CTRL_REG4_G, 0x80);
+
+    // Mag: ODR=100Hz, FSR=2 gauss, continuous-conversion
+    g_i2c->write_reg(ADDR_XM, CTRL_REG5_XM, 0x14);
+    g_i2c->write_reg(ADDR_XM, CTRL_REG6_XM, 0x00);
+    g_i2c->write_reg(ADDR_XM, CTRL_REG7_XM, 0x60);
 
     // 啟用 FIFO_EN
     uint8_t reg5 = g_i2c->read_reg(ADDR_G, CTRL_REG5_G);
@@ -210,6 +223,9 @@ void imu_disable() {
 
     // Accel power down
     g_i2c->write_reg(ADDR_XM, CTRL_REG1_XM, 0x00);
+
+    // Mag power down
+    g_i2c->write_reg(ADDR_XM, CTRL_REG7_XM, 0x02);
 
   } catch (const std::exception &e) {
     std::cerr << "imu_disable error: " << e.what() << "\n";
@@ -259,6 +275,11 @@ int imu_read_fifo(ImuData *out_buf, int buf_size, int *out_count) {
     g_i2c->read_block(ADDR_XM, static_cast<uint8_t>((OUT_X_L_A | 0x80) & 0xFF),
                       a_buf, 6);
 
+    // ── 讀取 Mag 當下最新一筆（Mag 無 FIFO） ────────────────────────────
+    uint8_t m_buf[6]{};
+    g_i2c->read_block(ADDR_XM, static_cast<uint8_t>((OUT_X_L_M | 0x80) & 0xFF),
+                      m_buf, 6);
+
     // ── 逐筆從 Gyro FIFO 讀出 ────────────────────────────────────────────
     for (int i = 0; i < to_read; ++i) {
       ImuData &d = out_buf[i];
@@ -273,6 +294,10 @@ int imu_read_fifo(ImuData *out_buf, int buf_size, int *out_count) {
       d.ax = s16(a_buf[0], a_buf[1]);
       d.ay = s16(a_buf[2], a_buf[3]);
       d.az = s16(a_buf[4], a_buf[5]);
+
+      d.mx = s16(m_buf[0], m_buf[1]);
+      d.my = s16(m_buf[2], m_buf[3]);
+      d.mz = s16(m_buf[4], m_buf[5]);
 
       d.timestamp_s = now_s();
       d.status = 0;

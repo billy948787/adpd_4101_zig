@@ -83,13 +83,16 @@ fn send_data() void {
                     };
                 }
 
-                writer.print(",{d},{d},{d},{d},{d},{d}\n", .{
+                writer.print(",{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6}\n", .{
                     item.ax,
                     item.ay,
                     item.az,
                     item.gx,
                     item.gy,
                     item.gz,
+                    item.mx,
+                    item.my,
+                    item.mz,
                 }) catch |err| {
                     stderr.print("Error formatting IMU data: {}\n", .{err}) catch {};
                     continue;
@@ -129,7 +132,7 @@ fn process_imu_queue() void {
         }
 
         raw_imu_queue_mutex.lock();
-        var local_queue = std.ArrayList(ProcessedData).initCapacity(gpa.allocator(), raw_imu_data_queue.items.len) catch |err| {
+        var local_queue = std.ArrayList(ProcessedData(adpd_config.time_slots.len)).initCapacity(gpa.allocator(), raw_imu_data_queue.items.len) catch |err| {
             stderr.print("Error initializing local IMU data queue: {}\n", .{err}) catch {};
             raw_imu_queue_mutex.unlock();
             return;
@@ -139,17 +142,36 @@ fn process_imu_queue() void {
             for (data) |item| {
                 // Process IMU data here, e.g., print or store it
                 if (item.status != 0) continue;
-                local_queue.append(gpa.allocator(), ProcessedData{
+
+                // LSM9DS0 scale (based on CTRL_REG4_XM=0x00 => ±2g, CTRL_REG4_G=0x00 => ±245 dps)
+                // accel sensitivity: 0.061 mg/LSB => 0.000061 g/LSB
+                // gyro sensitivity : 8.75 mdps/LSB => 0.00875 dps/LSB
+                const ax_g: f64 = @as(f64, @floatFromInt(item.ax)) * 0.000061;
+                const ay_g: f64 = @as(f64, @floatFromInt(item.ay)) * 0.000061;
+                const az_g: f64 = @as(f64, @floatFromInt(item.az)) * 0.000061;
+                const gx_dps: f64 = @as(f64, @floatFromInt(item.gx)) * 0.00875;
+                const gy_dps: f64 = @as(f64, @floatFromInt(item.gy)) * 0.00875;
+                const gz_dps: f64 = @as(f64, @floatFromInt(item.gz)) * 0.00875;
+
+                // LSM9DS0 mag sensitivity for ±2 gauss (per RTIMULib): 0.008 uT/LSB
+                const mx_uT: f64 = @as(f64, @floatFromInt(item.mx)) * 0.008;
+                const my_uT: f64 = @as(f64, @floatFromInt(item.my)) * 0.008;
+                const mz_uT: f64 = @as(f64, @floatFromInt(item.mz)) * 0.008;
+
+                local_queue.append(gpa.allocator(), .{
                     .sensor_type = "IMU",
-                    .sensor_timestamp = @intFromFloat(item.timestamp_s),
-                    .host_monotonic_timestamp = monotonicNs(),
-                    .ppg_value = 0,
-                    .ax = item.ax,
-                    .ay = item.ay,
-                    .az = item.az,
-                    .gx = item.gx,
-                    .gy = item.gy,
-                    .gz = item.gz,
+                    .sensor_timestamp = @intFromFloat(item.timestamp_s * 1_000_000.0),
+                    .host_monotonic_timestamp = monotonicUs(),
+                    .ppg_value = [1]i64{0} ** adpd_config.time_slots.len,
+                    .ax = ax_g,
+                    .ay = ay_g,
+                    .az = az_g,
+                    .gx = gx_dps,
+                    .gy = gy_dps,
+                    .gz = gz_dps,
+                    .mx = mx_uT,
+                    .my = my_uT,
+                    .mz = mz_uT,
                 }) catch |err| {
                     stderr.print("Error processing IMU data: {}\n", .{err}) catch {};
                 };
@@ -277,7 +299,7 @@ fn process_adpd_queue() void {
                     processed_data_queue_mutex.lock();
 
                     processed_data.sensor_timestamp = timestamp;
-                    processed_data.host_monotonic_timestamp = monotonicNs();
+                    processed_data.host_monotonic_timestamp = monotonicUs();
                     processed_data_queue.append(gpa.allocator(), processed_data) catch |err| {
                         stderr.print("Error appending processed ADPD data to main queue: {}\n", .{err}) catch {};
                     };
@@ -435,24 +457,24 @@ pub fn main() !void {
         stderr.print("Failed to deinitialize GPIO: {}\n", .{err}) catch {};
     };
 
-    // const result = imu_cpp.imu_init();
+    const result = imu_cpp.imu_init();
 
-    // if (result != 0) {
-    //     stderr.print("Failed to initialize IMU: error code {}\n", .{result}) catch {};
-    //     return;
-    // }
-    // defer imu_cpp.imu_deinit();
+    if (result != 0) {
+        stderr.print("Failed to initialize IMU: error code {}\n", .{result}) catch {};
+        return;
+    }
+    defer imu_cpp.imu_deinit();
 
     const adpd_thread = try std.Thread.spawn(.{}, read_adpd_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
     defer adpd_thread.join();
     const process_adpd_thread = try std.Thread.spawn(.{}, process_adpd_queue, .{});
     defer process_adpd_thread.join();
-    // const process_imu_thread = try std.Thread.spawn(.{}, process_imu_queue, .{});
-    // defer process_imu_thread.join();
+    const process_imu_thread = try std.Thread.spawn(.{}, process_imu_queue, .{});
+    defer process_imu_thread.join();
     const bluetooth_thread = try std.Thread.spawn(.{}, send_data, .{});
     defer bluetooth_thread.join();
-    // const imu_thread = try std.Thread.spawn(.{}, read_imu_data_loop, .{});
-    // defer imu_thread.join();
+    const imu_thread = try std.Thread.spawn(.{}, read_imu_data_loop, .{});
+    defer imu_thread.join();
 
     while (!should_exit.load(.seq_cst)) {
         std.Thread.sleep(100 * std.time.ns_per_ms);
@@ -466,12 +488,16 @@ pub fn ProcessedData(comptime num_timeslots: usize) type {
         host_monotonic_timestamp: u64,
         ppg_value: [num_timeslots]i64,
 
-        ax: i16,
-        ay: i16,
-        az: i16,
-        gx: i16,
-        gy: i16,
-        gz: i16,
+        ax: f64,
+        ay: f64,
+        az: f64,
+        gx: f64,
+        gy: f64,
+        gz: f64,
+
+        mx: f64,
+        my: f64,
+        mz: f64,
     };
 }
 
@@ -479,4 +505,8 @@ fn monotonicNs() u64 {
     const ts = std.posix.clock_gettime(std.posix.CLOCK.MONOTONIC) catch return 0;
     return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s +
         @as(u64, @intCast(ts.nsec));
+}
+
+fn monotonicUs() u64 {
+    return @divTrunc(monotonicNs(), 1000);
 }

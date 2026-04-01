@@ -9,6 +9,7 @@ typedef struct ImuData {
   double timestamp_s;
   int16_t ax, ay, az;
   int16_t gx, gy, gz;
+  int16_t mx, my, mz;
   // status:  0 = 成功
   //         -1 = 未初始化 / FIFO 無資料（所有感測值亦為 -1）
   //         -2 = 讀取錯誤
