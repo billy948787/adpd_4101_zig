@@ -146,17 +146,17 @@ fn process_imu_queue() void {
                 // LSM9DS0 scale (based on CTRL_REG4_XM=0x00 => ±2g, CTRL_REG4_G=0x00 => ±245 dps)
                 // accel sensitivity: 0.061 mg/LSB => 0.000061 g/LSB
                 // gyro sensitivity : 8.75 mdps/LSB => 0.00875 dps/LSB
-                const ax_g: f64 = @as(f64, @floatFromInt(item.ax)) * 0.000061;
-                const ay_g: f64 = @as(f64, @floatFromInt(item.ay)) * 0.000061;
-                const az_g: f64 = @as(f64, @floatFromInt(item.az)) * 0.000061;
-                const gx_dps: f64 = @as(f64, @floatFromInt(item.gx)) * 0.00875;
-                const gy_dps: f64 = @as(f64, @floatFromInt(item.gy)) * 0.00875;
-                const gz_dps: f64 = @as(f64, @floatFromInt(item.gz)) * 0.00875;
+                const ax_g: f32 = @as(f32, @floatFromInt(item.ax)) * 0.000061;
+                const ay_g: f32 = @as(f32, @floatFromInt(item.ay)) * 0.000061;
+                const az_g: f32 = @as(f32, @floatFromInt(item.az)) * 0.000061;
+                const gx_dps: f32 = @as(f32, @floatFromInt(item.gx)) * 0.00875;
+                const gy_dps: f32 = @as(f32, @floatFromInt(item.gy)) * 0.00875;
+                const gz_dps: f32 = @as(f32, @floatFromInt(item.gz)) * 0.00875;
 
                 // LSM9DS0 mag sensitivity for ±2 gauss (per RTIMULib): 0.008 uT/LSB
-                const mx_uT: f64 = @as(f64, @floatFromInt(item.mx)) * 0.008;
-                const my_uT: f64 = @as(f64, @floatFromInt(item.my)) * 0.008;
-                const mz_uT: f64 = @as(f64, @floatFromInt(item.mz)) * 0.008;
+                const mx_uT: f32 = @as(f32, @floatFromInt(item.mx)) * 0.008;
+                const my_uT: f32 = @as(f32, @floatFromInt(item.my)) * 0.008;
+                const mz_uT: f32 = @as(f32, @floatFromInt(item.mz)) * 0.008;
 
                 local_queue.append(gpa.allocator(), .{
                     .sensor_type = "IMU",
@@ -488,16 +488,16 @@ pub fn ProcessedData(comptime num_timeslots: usize) type {
         host_monotonic_timestamp: u64,
         ppg_value: [num_timeslots]i64,
 
-        ax: f64,
-        ay: f64,
-        az: f64,
-        gx: f64,
-        gy: f64,
-        gz: f64,
+        ax: f32,
+        ay: f32,
+        az: f32,
+        gx: f32,
+        gy: f32,
+        gz: f32,
 
-        mx: f64,
-        my: f64,
-        mz: f64,
+        mx: f32,
+        my: f32,
+        mz: f32,
     };
 }
 
