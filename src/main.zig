@@ -61,56 +61,74 @@ fn send_data() void {
             need_stop.store(false, .seq_cst);
             std.debug.print("Bluetooth client connected, ready to send data.\n", .{});
         }
+        // Snapshot the queue under lock, then release before doing blocking BT writes
         processed_data_queue_mutex.lock();
-        if (processed_data_queue.items.len > 0) {
-            const data = processed_data_queue.items;
-            for (data) |item| {
-                fbs.reset();
-                writer.print("{d},{s},{d},{d}", .{
-                    serial_number.load(.seq_cst),
-                    item.sensor_type,
-                    item.sensor_timestamp,
-                    item.host_monotonic_timestamp,
-                }) catch |err| {
-                    stderr.print("Error formatting header: {}\n", .{err}) catch {};
-                    continue;
-                };
-
-                for (item.ppg_value) |ppg| {
-                    writer.print(",{d}", .{ppg}) catch |err| {
-                        stderr.print("Error formatting PPG value: {}\n", .{err}) catch {};
-                        continue;
-                    };
-                }
-
-                writer.print(",{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6}\n", .{
-                    item.ax,
-                    item.ay,
-                    item.az,
-                    item.gx,
-                    item.gy,
-                    item.gz,
-                    item.mx,
-                    item.my,
-                    item.mz,
-                }) catch |err| {
-                    stderr.print("Error formatting IMU data: {}\n", .{err}) catch {};
-                    continue;
-                };
-
-                bt_output.write(fbs.getWritten()) catch |err| {
-                    stderr.print("Error writing data to Bluetooth: {}\n", .{err}) catch {};
-                    bt_output.closeClient() catch |close_err| {
-                        stderr.print("Error closing Bluetooth client socket: {}\n", .{close_err}) catch {};
-                    };
-                    break;
-                };
-
-                _ = serial_number.fetchAdd(1, .seq_cst);
-            }
-            processed_data_queue.clearRetainingCapacity();
+        const queue_len = processed_data_queue.items.len;
+        if (queue_len == 0) {
+            processed_data_queue_mutex.unlock();
+            std.Thread.sleep(2 * std.time.ns_per_ms);
+            continue;
         }
+        // Copy items to a local buffer so we can release the lock quickly
+        var local_queue = std.ArrayList(ProcessedData(adpd_config.time_slots.len)).initCapacity(gpa.allocator(), queue_len) catch |err| {
+            stderr.print("Error allocating local send queue: {}\n", .{err}) catch {};
+            processed_data_queue_mutex.unlock();
+            continue;
+        };
+        local_queue.appendSlice(gpa.allocator(), processed_data_queue.items) catch |err| {
+            stderr.print("Error copying send queue: {}\n", .{err}) catch {};
+            processed_data_queue_mutex.unlock();
+            local_queue.deinit(gpa.allocator());
+            continue;
+        };
+        processed_data_queue.clearRetainingCapacity();
         processed_data_queue_mutex.unlock();
+        // ── Now write to BT without holding the mutex ──
+        for (local_queue.items) |item| {
+            fbs.reset();
+            writer.print("{d},{s},{d},{d}", .{
+                serial_number.load(.seq_cst),
+                item.sensor_type,
+                item.sensor_timestamp,
+                item.host_monotonic_timestamp,
+            }) catch |err| {
+                stderr.print("Error formatting header: {}\n", .{err}) catch {};
+                continue;
+            };
+
+            for (item.ppg_value) |ppg| {
+                writer.print(",{d}", .{ppg}) catch |err| {
+                    stderr.print("Error formatting PPG value: {}\n", .{err}) catch {};
+                    continue;
+                };
+            }
+
+            writer.print(",{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6},{d:.6}\n", .{
+                item.ax,
+                item.ay,
+                item.az,
+                item.gx,
+                item.gy,
+                item.gz,
+                item.mx,
+                item.my,
+                item.mz,
+            }) catch |err| {
+                stderr.print("Error formatting IMU data: {}\n", .{err}) catch {};
+                continue;
+            };
+
+            bt_output.write(fbs.getWritten()) catch |err| {
+                stderr.print("Error writing data to Bluetooth: {}\n", .{err}) catch {};
+                bt_output.closeClient() catch |close_err| {
+                    stderr.print("Error closing Bluetooth client socket: {}\n", .{close_err}) catch {};
+                };
+                break;
+            };
+
+            _ = serial_number.fetchAdd(1, .seq_cst);
+        }
+        local_queue.deinit(gpa.allocator());
     }
 }
 
@@ -132,12 +150,17 @@ fn process_imu_queue() void {
         }
 
         raw_imu_queue_mutex.lock();
+        if (raw_imu_data_queue.items.len == 0) {
+            raw_imu_queue_mutex.unlock();
+            std.Thread.sleep(2 * std.time.ns_per_ms);
+            continue;
+        }
         var local_queue = std.ArrayList(ProcessedData(adpd_config.time_slots.len)).initCapacity(gpa.allocator(), raw_imu_data_queue.items.len) catch |err| {
             stderr.print("Error initializing local IMU data queue: {}\n", .{err}) catch {};
             raw_imu_queue_mutex.unlock();
             return;
         };
-        if (raw_imu_data_queue.items.len > 0) {
+        {
             const data = raw_imu_data_queue.items;
             for (data) |item| {
                 // Process IMU data here, e.g., print or store it
@@ -187,6 +210,7 @@ fn process_imu_queue() void {
         };
 
         processed_data_queue_mutex.unlock();
+        local_queue.deinit(gpa.allocator());
     }
 }
 
@@ -204,6 +228,10 @@ fn process_adpd_queue() void {
     var first_sample_time_us: i64 = 0;
     var sample_counter: i64 = 0;
     var time_initialized = false;
+
+    var processed_data: ProcessedData(adpd_config.time_slots.len) = undefined;
+
+    processed_data.sensor_type = "PPG";
 
     var is_enable = false;
     var prev_sum_status: i32 = -1;
@@ -223,105 +251,124 @@ fn process_adpd_queue() void {
             }
         }
         raw_adpd_queue_mutex.lock();
-        defer raw_adpd_queue_mutex.unlock();
 
-        var processed_data: ProcessedData(adpd_config.time_slots.len) = undefined;
+        if (raw_adpd_data_queue.items.len == 0) {
+            raw_adpd_queue_mutex.unlock();
+            std.Thread.sleep(100 * std.time.ns_per_ms);
+            continue;
+        }
 
-        processed_data.sensor_type = "PPG";
+        var local_processed_data_queue = std.ArrayList(ProcessedData(adpd_config.time_slots.len)).initCapacity(gpa.allocator(), 100) catch |err| {
+            stderr.print("Error allocating local send queue: {}\n", .{err}) catch {};
+            raw_adpd_queue_mutex.unlock();
+            continue;
+        };
+        defer local_processed_data_queue.deinit(gpa.allocator());
 
-        if (raw_adpd_data_queue.items.len > 0) {
-            const data = raw_adpd_data_queue.items;
-            var data_index: usize = 0;
+        const data = raw_adpd_data_queue.items;
+        var data_index: usize = 0;
 
-            while (data_index < data.len) {
-                const size = timeslot_signal_size_arr[current_slot_index];
-                if (data_index + size > data.len) {
-                    break;
-                }
-                const signal_data_raw = data[data_index .. data_index + size];
-                var signal_value: u32 = 0;
+        while (data_index < data.len) {
+            const size = timeslot_signal_size_arr[current_slot_index];
+            if (data_index + size > data.len) {
+                break;
+            }
+            const signal_data_raw = data[data_index .. data_index + size];
+            var signal_value: u32 = 0;
 
-                switch (size) {
-                    1 => {
-                        signal_value = @as(u32, signal_data_raw[0]);
-                    },
-                    2 => {
-                        signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]);
-                    },
-                    3 => {
-                        signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 16);
-                    },
-                    4 => {
-                        signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 24) | (@as(u32, signal_data_raw[3]) << 16);
-                    },
-                    else => {
-                        unreachable;
-                    },
-                }
-
-                if (!time_initialized) {
-                    first_sample_time_us = std.time.microTimestamp();
-                    time_initialized = true;
-                }
-
-                // stdout.print("original data {any}\n", .{signal_data_raw}) catch |err| {
-                //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
-                // };
-
-                const casted_value: i64 = @intCast(signal_value);
-                const timestamp = first_sample_time_us + sample_counter * period_us;
-
-                // stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
-                //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
-                // };
-
-                processed_data.ppg_value[current_slot_index] = casted_value - 8192;
-
-                data_index += size;
-
-                if (adpd_config.fifo_status_sum_enable and current_slot_index == adpd_config.time_slots.len - 1 and data_index < data.len) {
-                    var status_sum = data[data_index];
-
-                    data_index += 1;
-
-                    status_sum &= 0b00001111;
-
-                    if (prev_sum_status != -1) {
-                        const expected: u8 = @intCast((@as(u8, @intCast(prev_sum_status)) +% 1) & 0x0F);
-                        if (status_sum != expected) {
-                            stderr.print("Warning: FIFO status sum gap! expected {d}, got {d}\n", .{ expected, status_sum }) catch {};
-                        }
-                    }
-
-                    prev_sum_status = status_sum;
-                }
-                if (current_slot_index == adpd_config.time_slots.len - 1) {
-                    processed_data_queue_mutex.lock();
-
-                    processed_data.sensor_timestamp = timestamp;
-                    processed_data.host_monotonic_timestamp = monotonicUs();
-                    processed_data_queue.append(gpa.allocator(), processed_data) catch |err| {
-                        stderr.print("Error appending processed ADPD data to main queue: {}\n", .{err}) catch {};
-                    };
-                    processed_data_queue_mutex.unlock();
-
-                    sample_counter += 1;
-                }
-                current_slot_index = (current_slot_index + 1) % adpd_config.time_slots.len;
+            switch (size) {
+                1 => {
+                    signal_value = @as(u32, signal_data_raw[0]);
+                },
+                2 => {
+                    signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]);
+                },
+                3 => {
+                    signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 16);
+                },
+                4 => {
+                    signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 24) | (@as(u32, signal_data_raw[3]) << 16);
+                },
+                else => {
+                    unreachable;
+                },
             }
 
-            raw_adpd_data_queue.replaceRange(gpa.allocator(), 0, data_index, &[_]u8{}) catch |err| {
-                stderr.print("Error removing processed data from queue: {}\n", .{err}) catch {};
-            };
+            if (!time_initialized) {
+                first_sample_time_us = std.time.microTimestamp();
+                time_initialized = true;
+            }
 
-            stderr.flush() catch |err| {
-                stderr.print("Error flushing stderr: {}\n", .{err}) catch {};
-            };
+            // stdout.print("original data {any}\n", .{signal_data_raw}) catch |err| {
+            //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
+            // };
 
-            stdout.flush() catch |err| {
-                stderr.print("Error flushing stdout: {}\n", .{err}) catch {};
-            };
+            const casted_value: i64 = @intCast(signal_value);
+            const timestamp = first_sample_time_us + sample_counter * period_us;
+
+            // stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
+            //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
+            // };
+
+            processed_data.ppg_value[current_slot_index] = casted_value - 8192;
+
+            data_index += size;
+
+            if (adpd_config.fifo_status_sum_enable and current_slot_index == adpd_config.time_slots.len - 1) {
+                if (data_index >= data.len) {
+                    data_index -= size;
+                    break;
+                }
+
+                var status_sum = data[data_index];
+
+                data_index += 1;
+
+                status_sum &= 0b00001111;
+
+                if (prev_sum_status != -1) {
+                    const expected: u8 = @intCast((@as(u8, @intCast(prev_sum_status)) +% 1) & 0x0F);
+                    if (status_sum != expected) {
+                        stderr.print("Warning: FIFO status sum gap! expected {d}, got {d}\n", .{ expected, status_sum }) catch {};
+                    }
+                }
+
+                prev_sum_status = status_sum;
+            }
+            if (current_slot_index == adpd_config.time_slots.len - 1) {
+                processed_data.sensor_timestamp = timestamp;
+                processed_data.host_monotonic_timestamp = monotonicUs();
+                local_processed_data_queue.append(gpa.allocator(), processed_data) catch |err| {
+                    stderr.print("Error appending processed ADPD data to main queue: {}\n", .{err}) catch {};
+                };
+                sample_counter += 1;
+            }
+            current_slot_index = (current_slot_index + 1) % adpd_config.time_slots.len;
         }
+
+        raw_adpd_data_queue.replaceRange(gpa.allocator(), 0, data_index, &[_]u8{}) catch |err| {
+            stderr.print("Error removing processed data from queue: {}\n", .{err}) catch {};
+        };
+
+        raw_adpd_queue_mutex.unlock();
+
+        processed_data_queue_mutex.lock();
+
+        processed_data_queue.appendSlice(gpa.allocator(), local_processed_data_queue.items) catch |err| {
+            stderr.print("Error appening processed data queue slice {}\n", .{err}) catch |err2| {
+                std.debug.print("fuck man {}\n", .{err2});
+            };
+        };
+
+        processed_data_queue_mutex.unlock();
+
+        stderr.flush() catch |err| {
+            stderr.print("Error flushing stderr: {}\n", .{err}) catch {};
+        };
+
+        stdout.flush() catch |err| {
+            stderr.print("Error flushing stdout: {}\n", .{err}) catch {};
+        };
     }
 }
 
@@ -355,13 +402,28 @@ fn read_imu_data_loop() void {
         _ = imu_cpp.imu_read_fifo(&fifo_buf, imu_cpp.IMU_FIFO_MAX_SAMPLES, &count);
 
         if (count > 0) {
-            raw_imu_queue_mutex.lock();
+            // Filter out sentinel "no data" entries (status != 0)
+            var real_count: usize = 0;
             for (fifo_buf[0..@intCast(count)]) |item| {
-                raw_imu_data_queue.append(gpa.allocator(), item) catch |err| {
-                    stderr.print("Error appending IMU data to queue: {}\n", .{err}) catch {};
-                };
+                if (item.status == 0) real_count += 1;
             }
-            raw_imu_queue_mutex.unlock();
+
+            if (real_count > 0) {
+                raw_imu_queue_mutex.lock();
+                for (fifo_buf[0..@intCast(count)]) |item| {
+                    if (item.status != 0) continue;
+                    raw_imu_data_queue.append(gpa.allocator(), item) catch |err| {
+                        stderr.print("Error appending IMU data to queue: {}\n", .{err}) catch {};
+                    };
+                }
+                raw_imu_queue_mutex.unlock();
+            } else {
+                // FIFO empty — sleep to avoid busy-polling I2C
+                std.Thread.sleep(5 * std.time.ns_per_ms);
+            }
+        } else {
+            // No data at all — sleep before retrying
+            std.Thread.sleep(5 * std.time.ns_per_ms);
         }
     }
 }
