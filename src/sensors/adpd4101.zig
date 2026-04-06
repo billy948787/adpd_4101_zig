@@ -70,7 +70,8 @@ pub const ADPD4101 = struct {
         const tia_ceil = try i2c.I2cReadReg(self.fd, self.dev_addr, 0x0004);
 
         if (tia_ceil[0] > 0 or tia_ceil[1] > 0) {
-            std.debug.print("TIA ceil: {any}\n", .{tia_ceil});
+            std.debug.print("TIA ceil: {x} {x}\n", .{ tia_ceil[0], tia_ceil[1] });
+            try i2c.i2cWriteReg(self.fd, self.dev_addr, 0x0004, [2]u8{ 0, 0 });
         }
 
         return self.buffer[0..to_read];

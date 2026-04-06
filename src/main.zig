@@ -214,11 +214,23 @@ fn process_imu_queue() void {
     }
 }
 
+fn parse_signal_value(signal_data_raw: []const u8) u32 {
+    return switch (signal_data_raw.len) {
+        1 => @as(u32, signal_data_raw[0]),
+        2 => (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]),
+        3 => (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 16),
+        4 => (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 24) | (@as(u32, signal_data_raw[3]) << 16),
+        else => unreachable,
+    };
+}
+
 fn process_adpd_queue() void {
     var timeslot_signal_size_arr: [adpd_config.time_slots.len]usize = undefined;
+    var timeslot_channel_count_arr: [adpd_config.time_slots.len]usize = undefined;
 
     inline for (adpd_config.time_slots, 0..) |slot, i| {
         timeslot_signal_size_arr[i] = @intCast(slot.data_format.sig_size);
+        timeslot_channel_count_arr[i] = if (slot.timeslot_ctrl.channel2_enable == 1) 2 else 1;
     }
 
     const period_us: i64 = @divTrunc(1_000_000, @as(i64, adpd_config.timeslot_freq_hz));
@@ -270,28 +282,25 @@ fn process_adpd_queue() void {
 
         while (data_index < data.len) {
             const size = timeslot_signal_size_arr[current_slot_index];
-            if (data_index + size > data.len) {
+            const channel_count = timeslot_channel_count_arr[current_slot_index];
+            const sample_size = size * channel_count;
+
+            if (data_index + sample_size > data.len) {
                 break;
             }
-            const signal_data_raw = data[data_index .. data_index + size];
-            var signal_value: u32 = 0;
 
-            switch (size) {
-                1 => {
-                    signal_value = @as(u32, signal_data_raw[0]);
-                },
-                2 => {
-                    signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]);
-                },
-                3 => {
-                    signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 16);
-                },
-                4 => {
-                    signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 24) | (@as(u32, signal_data_raw[3]) << 16);
-                },
-                else => {
-                    unreachable;
-                },
+            const ch1_signal_value = parse_signal_value(data[data_index .. data_index + size]);
+            data_index += size;
+
+            const ch1_casted_value: i64 = @intCast(ch1_signal_value);
+            var averaged_value = ch1_casted_value - 8192;
+
+            if (channel_count == 2) {
+                const ch2_signal_value = parse_signal_value(data[data_index .. data_index + size]);
+                data_index += size;
+
+                const ch2_casted_value: i64 = @intCast(ch2_signal_value);
+                averaged_value = @divTrunc((ch1_casted_value - 8192) + (ch2_casted_value - 8192), 2);
             }
 
             if (!time_initialized) {
@@ -299,24 +308,13 @@ fn process_adpd_queue() void {
                 time_initialized = true;
             }
 
-            // stdout.print("original data {any}\n", .{signal_data_raw}) catch |err| {
-            //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
-            // };
-
-            const casted_value: i64 = @intCast(signal_value);
             const timestamp = first_sample_time_us + sample_counter * period_us;
 
-            // stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
-            //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
-            // };
-
-            processed_data.ppg_value[current_slot_index] = casted_value - 8192;
-
-            data_index += size;
+            processed_data.ppg_value[current_slot_index] = averaged_value;
 
             if (adpd_config.fifo_status_sum_enable and current_slot_index == adpd_config.time_slots.len - 1) {
                 if (data_index >= data.len) {
-                    data_index -= size;
+                    data_index -= sample_size;
                     break;
                 }
 
@@ -519,24 +517,24 @@ pub fn main() !void {
         stderr.print("Failed to deinitialize GPIO: {}\n", .{err}) catch {};
     };
 
-    const result = imu_cpp.imu_init();
+    // const result = imu_cpp.imu_init();
 
-    if (result != 0) {
-        stderr.print("Failed to initialize IMU: error code {}\n", .{result}) catch {};
-        return;
-    }
-    defer imu_cpp.imu_deinit();
+    // if (result != 0) {
+    //     stderr.print("Failed to initialize IMU: error code {}\n", .{result}) catch {};
+    //     return;
+    // }
+    // defer imu_cpp.imu_deinit();
 
     const adpd_thread = try std.Thread.spawn(.{}, read_adpd_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
     defer adpd_thread.join();
     const process_adpd_thread = try std.Thread.spawn(.{}, process_adpd_queue, .{});
     defer process_adpd_thread.join();
-    const process_imu_thread = try std.Thread.spawn(.{}, process_imu_queue, .{});
-    defer process_imu_thread.join();
+    // const process_imu_thread = try std.Thread.spawn(.{}, process_imu_queue, .{});
+    // defer process_imu_thread.join();
     const bluetooth_thread = try std.Thread.spawn(.{}, send_data, .{});
     defer bluetooth_thread.join();
-    const imu_thread = try std.Thread.spawn(.{}, read_imu_data_loop, .{});
-    defer imu_thread.join();
+    // const imu_thread = try std.Thread.spawn(.{}, read_imu_data_loop, .{});
+    // defer imu_thread.join();
 
     while (!should_exit.load(.seq_cst)) {
         std.Thread.sleep(100 * std.time.ns_per_ms);
