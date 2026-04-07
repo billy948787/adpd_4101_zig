@@ -106,3 +106,69 @@ pub const CathodeReg = packed struct(u16) {
     precondition: u3,
     reserved: u1,
 };
+
+pub const AfeTrimReg = packed struct(u16) {
+    TIA_GAIN_CH1: u3,
+    TIA_GAIN_CH2: u3,
+    VREF_PULSE_VAL: u2,
+    AFE_TRIM_VREF: u2,
+    VREF_PULSE: u1,
+    CH1_TRIM_INT: u2,
+    CH2_TRIM_INT: u2,
+    TIA_CEIL_DETECT: u1,
+};
+
+pub const PatternReg = packed struct(u16) {
+    REVERSE_INTEGRATION: u4,
+    SUBTRACT: u4,
+    MOD_DISABLE: u4,
+    LED_DISABLE: u4,
+};
+
+pub const AdcOffset1Reg = packed struct(u16) {
+    CH1_ADC_ADJUST: u14,
+    RESERVED: u2,
+};
+
+pub const AdcOffset2Reg = packed struct(u16) {
+    CH2_ADC_ADJUST: u14,
+    RESERVED: u1,
+    ZERO_ADJUST: u1,
+};
+
+pub const IntegrateOffsetReg = packed struct(u16) {
+    INTEG_OFFSET_31_25NS: u5,
+    INTEG_OFFSET_1_US: u8,
+    RESERVED: u3,
+};
+
+pub const FifoStatusBytesReg = packed struct(u16) {
+    ENA_STAT_SUM: u1,
+    ENA_STAT_D1: u1,
+    ENA_STAT_D2: u1,
+    ENA_STAT_L0: u1,
+    ENA_STAT_L1: u1,
+    ENA_STAT_LX: u1,
+    ENA_STAT_TC1: u1,
+    ENA_STAT_TC2: u1,
+    ENA_STAT_TCX: u1,
+    RESERVED: u7,
+};
+
+pub const TimeslotCtrlReg = packed struct(u16) {
+    TIMESLOT_OFFSET: u10,
+    INPUT_R_SELECT: u2,
+    SAMPLE_TYPE: u2,
+    CH2_EN: u1,
+    SUBSAMPLE: u1,
+};
+
+pub const IntegrationSetupReg = packed struct(u16) {
+    INTEG_WIDTH: u5,
+    RESERVED: u1,
+    ADC_COUNT: u2,
+    CH1_AMP_DISABLE: u3,
+    AFE_INT_C_BUF: u1,
+    CH2_AMP_DISABLE: u3,
+    SINGLE_INTEG: u1,
+};

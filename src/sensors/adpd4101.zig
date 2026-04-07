@@ -16,6 +16,7 @@ pub const ADPD4101 = struct {
         comptime use_ext_clock: bool,
         comptime fifo_threshold: u16,
         comptime gpio_id: u32,
+        comptime fifo_status_sum_enable: bool,
     ) !ADPD4101 {
         const file = try std.fs.cwd().openFile(i2c_bus_path, .{ .mode = .read_write });
 
@@ -27,9 +28,10 @@ pub const ADPD4101 = struct {
         inline for (timeslots) |ts| {
             try config_time_slot(fd, dev_addr, ts);
         }
+        try set_fifo_status_bytes(fd, dev_addr, fifo_status_sum_enable);
         try set_interrupt(fd, dev_addr, gpio_id, fifo_threshold);
         try set_time_slot_freq(fd, dev_addr, oscillator, timeslot_freq_hz);
-        try set_opmode(fd, dev_addr, @intCast(timeslots.len), true);
+        try set_opmode(fd, dev_addr, @intCast(timeslots.len), false);
         return ADPD4101{
             .fd = fd,
             .dev_addr = dev_addr,
@@ -65,9 +67,35 @@ pub const ADPD4101 = struct {
 
         try i2c.i2cKeepReadReg(self.fd, self.dev_addr, FIFO_DATA_REG, self.buffer[0..to_read]);
 
+        const tia_ceil = try i2c.I2cReadReg(self.fd, self.dev_addr, 0x0004);
+
+        if (tia_ceil[0] > 0 or tia_ceil[1] > 0) {
+            std.debug.print("TIA ceil: {x} {x}\n", .{ tia_ceil[0], tia_ceil[1] });
+            try i2c.i2cWriteReg(self.fd, self.dev_addr, 0x0004, [2]u8{ 0, 0 });
+        }
+
         return self.buffer[0..to_read];
     }
 };
+
+fn set_fifo_status_bytes(fd: std.posix.fd_t, dev_addr: u8, status_sum_enable: bool) !void {
+    const fifo_status_bytes_reg = regs.FifoStatusBytesReg{
+        .ENA_STAT_SUM = @intFromBool(status_sum_enable),
+        .ENA_STAT_D1 = 0,
+        .ENA_STAT_D2 = 0,
+        .ENA_STAT_L0 = 0,
+        .ENA_STAT_L1 = 0,
+        .ENA_STAT_LX = 0,
+        .ENA_STAT_TC1 = 0,
+        .ENA_STAT_TC2 = 0,
+        .ENA_STAT_TCX = 0,
+        .RESERVED = 0,
+    };
+
+    var data: [2]u8 = undefined;
+    std.mem.writeInt(u16, &data, @bitCast(fifo_status_bytes_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, FIFO_STATUS_BYTES, @as([2]u8, data));
+}
 
 fn set_opmode(fd: std.posix.fd_t, dev_addr: u8, slot_count: u8, is_enable: bool) !void {
     const mode_value = regs.OpModeReg{
@@ -172,6 +200,13 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     const led_pow12_target_reg = LED_POW12_A_REG + (slot.id[0] - 'A') * 0x20;
     const led_pow34_target_reg = LED_POW34_A_REG + (slot.id[0] - 'A') * 0x20;
     const counts_target_reg = COUNTS_A_REG + (slot.id[0] - 'A') * 0x20;
+    const afe_trim_target_reg = AFE_TRIM_A_REG + (slot.id[0] - 'A') * 0x20;
+    const pattern_target_reg = PATTERN_A_REG + (slot.id[0] - 'A') * 0x20;
+    const adc_offset1_target_reg = ADC_OFF1_A_REG + (slot.id[0] - 'A') * 0x20;
+    const adc_offset2_target_reg = ADC_OFF2_A_REG + (slot.id[0] - 'A') * 0x20;
+    const integrate_offset_target_reg = INTEG_OS_A_REG + (slot.id[0] - 'A') * 0x20;
+    const timeslot_ctrl_target_reg = TS_CTRL_A_REG + (slot.id[0] - 'A') * 0x20;
+    const integration_setup_target_reg = INTEG_SETUP_A_REG + (slot.id[0] - 'A') * 0x20;
     // buffer
     var data: [2]u8 = undefined;
 
@@ -216,6 +251,34 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     std.mem.writeInt(u16, &data, @bitCast(ts_ctrl_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, ts_ctrl_target_reg, @as([2]u8, data));
 
+    const integration_setup_reg = regs.IntegrationSetupReg{
+        .ADC_COUNT = slot.integration_setup.adc_count,
+        .AFE_INT_C_BUF = slot.integration_setup.afe_int_c_buf,
+        .CH1_AMP_DISABLE = slot.integration_setup.ch1_amplifier_disabled,
+        .CH2_AMP_DISABLE = slot.integration_setup.ch2_amplifier_disabled,
+        .INTEG_WIDTH = slot.integration_setup.integration_width,
+        .RESERVED = 0,
+        .SINGLE_INTEG = slot.integration_setup.single_integrator_pulse,
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(integration_setup_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, integration_setup_target_reg, @as([2]u8, data));
+
+    // confit afe trim
+    const afe_trim_reg = regs.AfeTrimReg{
+        .AFE_TRIM_VREF = @intFromEnum(slot.afe_trim.afe_trim_vref),
+        .CH1_TRIM_INT = slot.afe_trim.ch1_trim_int,
+        .CH2_TRIM_INT = slot.afe_trim.ch2_trim_int,
+        .TIA_CEIL_DETECT = slot.afe_trim.tia_ceil_detect,
+        .TIA_GAIN_CH1 = @intFromEnum(slot.afe_trim.tia_gain_ch1),
+        .TIA_GAIN_CH2 = @intFromEnum(slot.afe_trim.tia_gain_ch2),
+        .VREF_PULSE = slot.afe_trim.vref_pulse,
+        .VREF_PULSE_VAL = @intFromEnum(slot.afe_trim.vref_pulse_val),
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(afe_trim_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, afe_trim_target_reg, @as([2]u8, data));
+
     const data_format_reg = regs.DataFormatReg{
         .dark_shift = slot.data_format.dark_shift,
         .dark_size = slot.data_format.dark_size,
@@ -242,6 +305,27 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
 
     std.mem.writeInt(u16, &data, @bitCast(mod_pulse_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, mod_pulse_target_reg, @as([2]u8, data));
+
+    const timeslot_ctrl_reg = regs.TsCtrlReg{
+        .ch2_enable = slot.timeslot_ctrl.channel2_enable,
+        .input_resister_select = @intFromEnum(slot.timeslot_ctrl.input_resister_select),
+        .sample_type = @intFromEnum(slot.timeslot_ctrl.sample_type),
+        .subsample = slot.timeslot_ctrl.subsample,
+        .timeslot_offset = slot.timeslot_ctrl.timeslot_offset,
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(timeslot_ctrl_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, timeslot_ctrl_target_reg, @as([2]u8, data));
+
+    const pattern_reg = regs.PatternReg{
+        .LED_DISABLE = slot.pattern.led_disable,
+        .REVERSE_INTEGRATION = slot.pattern.reverse_integration,
+        .MOD_DISABLE = slot.pattern.mod_disable,
+        .SUBTRACT = slot.pattern.subtract,
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(pattern_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, pattern_target_reg, @as([2]u8, data));
 
     var led_pow12_reg: regs.LedPowerReg = regs.LedPowerReg{
         .led1_driveside = 0,
@@ -294,6 +378,21 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     std.mem.writeInt(u16, &data, @bitCast(counts_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, counts_target_reg, @as([2]u8, data));
 
+    const adc_offset1_reg = regs.AdcOffset1Reg{
+        .CH1_ADC_ADJUST = slot.adc_offset1.ch1_adc_adjust,
+        .RESERVED = 0,
+    };
+    std.mem.writeInt(u16, &data, @bitCast(adc_offset1_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, adc_offset1_target_reg, @as([2]u8, data));
+
+    const adc_offset2_reg = regs.AdcOffset2Reg{
+        .CH2_ADC_ADJUST = slot.adc_offset2.ch2_adc_adjust,
+        .ZERO_ADJUST = slot.adc_offset2.zero_adjust,
+        .RESERVED = 0,
+    };
+    std.mem.writeInt(u16, &data, @bitCast(adc_offset2_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, adc_offset2_target_reg, @as([2]u8, data));
+
     // configure cathode
     const cathode_target_reg = CATHODE_A_REG + (slot.id[0] - 'A') * 0x20;
     const cathode_reg = regs.CathodeReg{
@@ -306,6 +405,15 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
         .vc2_pulse_control = @intFromEnum(slot.cathode.vc2_pulse_control),
         .reserved = 0,
     };
+
+    const integrate_offset_reg = regs.IntegrateOffsetReg{
+        .INTEG_OFFSET_1_US = slot.integrate_offset.integrate_offset_1_US,
+        .INTEG_OFFSET_31_25NS = slot.integrate_offset.integrate_offset_31_25_NS,
+        .RESERVED = 0,
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(integrate_offset_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, integrate_offset_target_reg, @as([2]u8, data));
 
     std.mem.writeInt(u16, &data, @bitCast(cathode_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, cathode_target_reg, @as([2]u8, data));
@@ -356,6 +464,7 @@ pub fn get_led_id(comptime name: []const u8) u16 {
 const OPMODE_REG: u16 = 0x0010;
 const SYS_CTL_REG: u16 = 0x000F;
 const FIFO_STATUS_REG: u16 = 0x0000;
+const FIFO_STATUS_BYTES: u16 = 0x001E;
 const FIFO_DATA_REG: u16 = 0x002F;
 const TS_FREQ_REG: u16 = 0x000D;
 const TS_FREQH_REG: u16 = 0x000E;
@@ -477,6 +586,95 @@ const CATHODE_I_REG: u16 = 0x0203;
 const CATHODE_J_REG: u16 = 0x0223;
 const CATHODE_K_REG: u16 = 0x0243;
 const CATHODE_L_REG: u16 = 0x0263;
+// afe trim register
+const AFE_TRIM_A_REG: u16 = 0x0104;
+const AFE_TRIM_B_REG: u16 = 0x0124;
+const AFE_TRIM_C_REG: u16 = 0x0144;
+const AFE_TRIM_D_REG: u16 = 0x0164;
+const AFE_TRIM_E_REG: u16 = 0x0184;
+const AFE_TRIM_F_REG: u16 = 0x01A4;
+const AFE_TRIM_G_REG: u16 = 0x01C4;
+const AFE_TRIM_H_REG: u16 = 0x01E4;
+const AFE_TRIM_I_REG: u16 = 0x0204;
+const AFE_TRIM_J_REG: u16 = 0x0224;
+const AFE_TRIM_K_REG: u16 = 0x0244;
+const AFE_TRIM_L_REG: u16 = 0x0264;
+// pattern register
+const PATTERN_A_REG: u16 = 0x010D;
+const PATTERN_B_REG: u16 = 0x012D;
+const PATTERN_C_REG: u16 = 0x014D;
+const PATTERN_D_REG: u16 = 0x016D;
+const PATTERN_E_REG: u16 = 0x018D;
+const PATTERN_F_REG: u16 = 0x01AD;
+const PATTERN_G_REG: u16 = 0x01CD;
+const PATTERN_H_REG: u16 = 0x01ED;
+const PATTERN_I_REG: u16 = 0x020D;
+const PATTERN_J_REG: u16 = 0x022D;
+const PATTERN_K_REG: u16 = 0x024D;
+const PATTERN_L_REG: u16 = 0x026D;
+// adc offset register
+const ADC_OFF1_A_REG: u16 = 0x010E;
+const ADC_OFF1_B_REG: u16 = 0x012E;
+const ADC_OFF1_C_REG: u16 = 0x014E;
+const ADC_OFF1_D_REG: u16 = 0x016E;
+const ADC_OFF1_E_REG: u16 = 0x018E;
+const ADC_OFF1_F_REG: u16 = 0x01AE;
+const ADC_OFF1_G_REG: u16 = 0x01CE;
+const ADC_OFF1_H_REG: u16 = 0x01EE;
+const ADC_OFF1_I_REG: u16 = 0x020E;
+const ADC_OFF1_J_REG: u16 = 0x022E;
+const ADC_OFF1_K_REG: u16 = 0x024E;
+const ADC_OFF1_L_REG: u16 = 0x026E;
+const ADC_OFF2_A_REG: u16 = 0x010F;
+const ADC_OFF2_B_REG: u16 = 0x012F;
+const ADC_OFF2_C_REG: u16 = 0x014F;
+const ADC_OFF2_D_REG: u16 = 0x016F;
+const ADC_OFF2_E_REG: u16 = 0x018F;
+const ADC_OFF2_F_REG: u16 = 0x01AF;
+const ADC_OFF2_G_REG: u16 = 0x01CF;
+const ADC_OFF2_H_REG: u16 = 0x01EF;
+const ADC_OFF2_I_REG: u16 = 0x020F;
+const ADC_OFF2_J_REG: u16 = 0x022F;
+const ADC_OFF2_K_REG: u16 = 0x024F;
+const ADC_OFF2_L_REG: u16 = 0x026F;
+const INTEG_OS_A_REG: u16 = 0x010B;
+const INTEG_OS_B_REG: u16 = 0x012B;
+const INTEG_OS_C_REG: u16 = 0x014B;
+const INTEG_OS_D_REG: u16 = 0x016B;
+const INTEG_OS_E_REG: u16 = 0x018B;
+const INTEG_OS_F_REG: u16 = 0x01AB;
+const INTEG_OS_G_REG: u16 = 0x01CB;
+const INTEG_OS_H_REG: u16 = 0x01EB;
+const INTEG_OS_I_REG: u16 = 0x020B;
+const INTEG_OS_J_REG: u16 = 0x022B;
+const INTEG_OS_K_REG: u16 = 0x024B;
+const INTEG_OS_L_REG: u16 = 0x026B;
+// ts_ctrl register
+const TS_CTRL_A: u16 = 0x0100;
+const TS_CTRL_B: u16 = 0x0120;
+const TS_CTRL_C: u16 = 0x0140;
+const TS_CTRL_D: u16 = 0x0160;
+const TS_CTRL_E: u16 = 0x0180;
+const TS_CTRL_F: u16 = 0x01A0;
+const TS_CTRL_G: u16 = 0x01C0;
+const TS_CTRL_H: u16 = 0x01E0;
+const TS_CTRL_I: u16 = 0x0200;
+const TS_CTRL_J: u16 = 0x0220;
+const TS_CTRL_K: u16 = 0x0240;
+const TS_CTRL_L: u16 = 0x0260;
+// integraion setup register
+const INTEG_SETUP_A_REG: u16 = 0x010A;
+const INTEG_SETUP_B_REG: u16 = 0x012A;
+const INTEG_SETUP_C_REG: u16 = 0x014A;
+const INTEG_SETUP_D_REG: u16 = 0x016A;
+const INTEG_SETUP_E_REG: u16 = 0x018A;
+const INTEG_SETUP_F_REG: u16 = 0x01AA;
+const INTEG_SETUP_G_REG: u16 = 0x01CA;
+const INTEG_SETUP_H_REG: u16 = 0x01EA;
+const INTEG_SETUP_I_REG: u16 = 0x020A;
+const INTEG_SETUP_J_REG: u16 = 0x022A;
+const INTEG_SETUP_K_REG: u16 = 0x024A;
+const INTEG_SETUP_L_REG: u16 = 0x026A;
 // gpio register
 const GPIO_CFG_REG: u16 = 0x0022;
 const GPIO_01_REG: u16 = 0x0023;
@@ -494,6 +692,22 @@ pub const TimeSlot = struct {
     input_config: InputConfig,
     mod_pulse: ModPulse,
     cathode: Cathode,
+    afe_trim: AfeTrim,
+    pattern: Pattern,
+    adc_offset1: AdcOffset1,
+    adc_offset2: AdcOffset2,
+    integrate_offset: IntegrateOffset,
+    timeslot_ctrl: TimeslotCtrl,
+    integration_setup: IntegraionSetup,
+};
+
+pub const IntegraionSetup = struct {
+    single_integrator_pulse: u1 = 0,
+    ch2_amplifier_disabled: u3 = 0,
+    afe_int_c_buf: u1 = 0,
+    ch1_amplifier_disabled: u3 = 0,
+    adc_count: u2 = 0,
+    integration_width: u5 = 0x3,
 };
 
 pub const InputPairMode = enum(u4) {
@@ -506,6 +720,11 @@ pub const InputPairMode = enum(u4) {
     IN1_Ch2_IN2_Ch1 = 0b0110,
     Both_Ch1 = 0b0111,
     Both_Ch2 = 0b1000,
+};
+
+pub const IntegrateOffset = struct {
+    integrate_offset_31_25_NS: u5 = 0x14,
+    integrate_offset_1_US: u8 = 0x10,
 };
 
 pub const InputConfig = struct {
@@ -539,6 +758,52 @@ pub const Cathode = struct {
     vc2_pulse_control: PulseControl = .NO_PULSING,
 };
 
+pub const AfeTrim = struct {
+    tia_ceil_detect: u1 = 0,
+    ch2_trim_int: u2 = 0,
+    ch1_trim_int: u2 = 0,
+    vref_pulse: u1 = 0,
+    afe_trim_vref: AfeTrimVref = .VREF_1_265V,
+    vref_pulse_val: VrefPulse = .MODULATE_TIA_VREF_1_265V,
+    tia_gain_ch2: TiaGain = .KOHM200,
+    tia_gain_ch1: TiaGain = .KOHM200,
+};
+
+pub const AdcOffset1 = struct {
+    ch1_adc_adjust: u14 = 0,
+};
+
+pub const AdcOffset2 = struct {
+    ch2_adc_adjust: u14 = 0,
+    zero_adjust: u1 = 0,
+};
+pub const TimeslotCtrl = struct {
+    input_resister_select: InputRSelect = .OHM_500,
+    timeslot_offset: u10 = 0,
+    sample_type: SampleType = .STANDARD,
+    channel2_enable: u1 = 0,
+    subsample: u1 = 0,
+};
+
+pub const Pattern = struct {
+    led_disable: u4 = 0x0,
+    mod_disable: u4 = 0x0,
+    subtract: u4 = 0x0,
+    reverse_integration: u4 = 0x0,
+};
+
+pub const SampleType = enum(u2) {
+    STANDARD = 0b00,
+    ONE_REGION_DIGI_INTEGRATION = 0b01,
+    TWO_REGION_DIGI_INTEGRATION = 0b10,
+    IMPULSE_RESPONSE = 0b11,
+};
+
+pub const InputRSelect = enum(u2) {
+    OHM_500 = 0b00,
+    KOHM_6_5 = 0b01,
+};
+
 pub const Precondition = enum(u3) {
     FLOAT = 0b000,
     VC1 = 0b001,
@@ -554,6 +819,28 @@ pub const VCState = enum(u2) {
     TIA_VREF = 0b01,
     TIA_VREF_PLUS_215mV = 0b10,
     GND,
+};
+
+pub const TiaGain = enum(u3) {
+    KOHM200 = 0b000,
+    KOHM100 = 0b001,
+    KOHM50 = 0b010,
+    KOHM25 = 0b011,
+    KOHM12_5 = 0b100,
+};
+
+pub const AfeTrimVref = enum(u3) {
+    VREF_1_1385V = 0b000,
+    VREF_1_012V = 0b001,
+    VREF_0_8855V = 0b010,
+    VREF_1_265V = 0b011,
+};
+
+pub const VrefPulse = enum(u2) {
+    MODULATE_TIA_VREF_1_1385V = 0b00,
+    MODULATE_TIA_VREF_1_012V = 0b01,
+    MODULATE_TIA_VREF_0_8855V = 0b10,
+    MODULATE_TIA_VREF_1_265V = 0b11,
 };
 
 pub const PulseControl = enum(u2) {
