@@ -251,6 +251,14 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, comptime slot: TimeSlot) !
     std.mem.writeInt(u16, &data, @bitCast(ts_ctrl_reg), .big);
     try i2c.i2cWriteReg(fd, dev_addr, ts_ctrl_target_reg, @as([2]u8, data));
 
+    const led_pulse_reg = regs.LedPulseReg{
+        .pulse_offset = slot.led_pulse.pulse_offset_us,
+        .pulse_width = slot.led_pulse.pulse_width_us,
+    };
+
+    std.mem.writeInt(u16, &data, @bitCast(led_pulse_reg), .big);
+    try i2c.i2cWriteReg(fd, dev_addr, mod_pulse_target_reg, @as([2]u8, data));
+
     const integration_setup_reg = regs.IntegrationSetupReg{
         .ADC_COUNT = slot.integration_setup.adc_count,
         .AFE_INT_C_BUF = slot.integration_setup.afe_int_c_buf,
