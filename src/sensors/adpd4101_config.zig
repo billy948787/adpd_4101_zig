@@ -41,8 +41,8 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .afe_trim = .{
             .tia_ceil_detect = 1,
-            .tia_gain_ch1 = .KOHM12_5,
-            .tia_gain_ch2 = .KOHM12_5,
+            .tia_gain_ch1 = .KOHM200,
+            .tia_gain_ch2 = .KOHM200,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -54,6 +54,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .timeslot_ctrl = .{
             .input_resister_select = .KOHM_6_5,
+            .channel2_enable = 1,
         },
         .integrate_offset = .{
             // .integrate_offset_1_US = 0xD6,
@@ -94,8 +95,8 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .afe_trim = .{
             .tia_ceil_detect = 1,
-            .tia_gain_ch1 = .KOHM12_5,
-            .tia_gain_ch2 = .KOHM12_5,
+            .tia_gain_ch1 = .KOHM200,
+            .tia_gain_ch2 = .KOHM200,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -107,6 +108,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .timeslot_ctrl = .{
             .input_resister_select = .KOHM_6_5,
+            .channel2_enable = 1,
         },
         .integrate_offset = .{
             // .integrate_offset_1_US = 0xD6,
@@ -147,8 +149,8 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .afe_trim = .{
             .tia_ceil_detect = 1,
-            .tia_gain_ch1 = .KOHM12_5,
-            .tia_gain_ch2 = .KOHM12_5,
+            .tia_gain_ch1 = .KOHM200,
+            .tia_gain_ch2 = .KOHM200,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -160,6 +162,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .timeslot_ctrl = .{
             .input_resister_select = .KOHM_6_5,
+            .channel2_enable = 1,
         },
         .integrate_offset = .{
             // .integrate_offset_1_US = 0xD6,
@@ -200,8 +203,8 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .afe_trim = .{
             .tia_ceil_detect = 1,
-            .tia_gain_ch1 = .KOHM12_5,
-            .tia_gain_ch2 = .KOHM12_5,
+            .tia_gain_ch1 = .KOHM200,
+            .tia_gain_ch2 = .KOHM200,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -213,6 +216,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .timeslot_ctrl = .{
             .input_resister_select = .KOHM_6_5,
+            .channel2_enable = 1,
         },
         .integrate_offset = .{
             // .integrate_offset_1_US = 0xD6,
@@ -253,8 +257,8 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .afe_trim = .{
             .tia_ceil_detect = 1,
-            .tia_gain_ch1 = .KOHM12_5,
-            .tia_gain_ch2 = .KOHM12_5,
+            .tia_gain_ch1 = .KOHM200,
+            .tia_gain_ch2 = .KOHM200,
         },
         .pattern = .{
             .subtract = 0xA,
@@ -266,6 +270,7 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .timeslot_ctrl = .{
             .input_resister_select = .KOHM_6_5,
+            .channel2_enable = 1,
         },
         .integrate_offset = .{
             // .integrate_offset_1_US = 0xD6,
