@@ -19,7 +19,8 @@ var should_exit = std.atomic.Value(bool).init(false);
 var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
 var raw_adpd_data_queue: std.ArrayList(u8) = undefined;
 var raw_imu_data_queue: std.ArrayList(imu_cpp.ImuData) = undefined;
-var processed_data_queue: std.ArrayList(ProcessedData(adpd_config.time_slots.len)) = undefined;
+const ppg_values_per_sample = adpd_config.time_slots.len * 2;
+var processed_data_queue: std.ArrayList(ProcessedData(ppg_values_per_sample)) = undefined;
 
 var stdout_buffer: [1024]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
@@ -70,7 +71,7 @@ fn send_data() void {
             continue;
         }
         // Copy items to a local buffer so we can release the lock quickly
-        var local_queue = std.ArrayList(ProcessedData(adpd_config.time_slots.len)).initCapacity(gpa.allocator(), queue_len) catch |err| {
+        var local_queue = std.ArrayList(ProcessedData(ppg_values_per_sample)).initCapacity(gpa.allocator(), queue_len) catch |err| {
             stderr.print("Error allocating local send queue: {}\n", .{err}) catch {};
             processed_data_queue_mutex.unlock();
             continue;
@@ -155,7 +156,7 @@ fn process_imu_queue() void {
             std.Thread.sleep(2 * std.time.ns_per_ms);
             continue;
         }
-        var local_queue = std.ArrayList(ProcessedData(adpd_config.time_slots.len)).initCapacity(gpa.allocator(), raw_imu_data_queue.items.len) catch |err| {
+        var local_queue = std.ArrayList(ProcessedData(ppg_values_per_sample)).initCapacity(gpa.allocator(), raw_imu_data_queue.items.len) catch |err| {
             stderr.print("Error initializing local IMU data queue: {}\n", .{err}) catch {};
             raw_imu_queue_mutex.unlock();
             return;
@@ -185,7 +186,7 @@ fn process_imu_queue() void {
                     .sensor_type = "IMU",
                     .sensor_timestamp = @intFromFloat(item.timestamp_s * 1_000_000.0),
                     .host_monotonic_timestamp = monotonicUs(),
-                    .ppg_value = [1]i64{0} ** adpd_config.time_slots.len,
+                    .ppg_value = [1]i64{0} ** ppg_values_per_sample,
                     .ax = ax_g,
                     .ay = ay_g,
                     .az = az_g,
@@ -241,7 +242,7 @@ fn process_adpd_queue() void {
     var sample_counter: i64 = 0;
     var time_initialized = false;
 
-    var processed_data: ProcessedData(adpd_config.time_slots.len) = undefined;
+    var processed_data: ProcessedData(ppg_values_per_sample) = undefined;
 
     processed_data.sensor_type = "PPG";
 
@@ -270,7 +271,7 @@ fn process_adpd_queue() void {
             continue;
         }
 
-        var local_processed_data_queue = std.ArrayList(ProcessedData(adpd_config.time_slots.len)).initCapacity(gpa.allocator(), 100) catch |err| {
+        var local_processed_data_queue = std.ArrayList(ProcessedData(ppg_values_per_sample)).initCapacity(gpa.allocator(), 100) catch |err| {
             stderr.print("Error allocating local send queue: {}\n", .{err}) catch {};
             raw_adpd_queue_mutex.unlock();
             continue;
@@ -293,14 +294,15 @@ fn process_adpd_queue() void {
             data_index += size;
 
             const ch1_casted_value: i64 = @intCast(ch1_signal_value);
-            var averaged_value = ch1_casted_value - 8192;
+            const ch1_value = ch1_casted_value - 8192;
+            var ch2_value: i64 = 0;
 
             if (channel_count == 2) {
                 const ch2_signal_value = parse_signal_value(data[data_index .. data_index + size]);
                 data_index += size;
 
                 const ch2_casted_value: i64 = @intCast(ch2_signal_value);
-                averaged_value = @divTrunc((ch1_casted_value - 8192) + (ch2_casted_value - 8192), 2);
+                ch2_value = ch2_casted_value - 8192;
             }
 
             if (!time_initialized) {
@@ -310,7 +312,9 @@ fn process_adpd_queue() void {
 
             const timestamp = first_sample_time_us + sample_counter * period_us;
 
-            processed_data.ppg_value[current_slot_index] = averaged_value;
+            const ppg_base_index = current_slot_index * 2;
+            processed_data.ppg_value[ppg_base_index] = ch1_value;
+            processed_data.ppg_value[ppg_base_index + 1] = ch2_value;
 
             if (adpd_config.fifo_status_sum_enable and current_slot_index == adpd_config.time_slots.len - 1) {
                 if (data_index >= data.len) {
@@ -492,7 +496,7 @@ pub fn main() !void {
     raw_imu_data_queue = try std.ArrayList(imu_cpp.ImuData).initCapacity(allocator, 1024);
     defer raw_imu_data_queue.deinit(allocator);
 
-    processed_data_queue = try std.ArrayList(ProcessedData(adpd_config.time_slots.len)).initCapacity(allocator, 1024);
+    processed_data_queue = try std.ArrayList(ProcessedData(ppg_values_per_sample)).initCapacity(allocator, 1024);
     defer processed_data_queue.deinit(allocator);
 
     var adpd4101_sensor = sensor.ADPD4101Sensor.init(
@@ -517,24 +521,24 @@ pub fn main() !void {
         stderr.print("Failed to deinitialize GPIO: {}\n", .{err}) catch {};
     };
 
-    // const result = imu_cpp.imu_init();
+    const result = imu_cpp.imu_init();
 
-    // if (result != 0) {
-    //     stderr.print("Failed to initialize IMU: error code {}\n", .{result}) catch {};
-    //     return;
-    // }
-    // defer imu_cpp.imu_deinit();
+    if (result != 0) {
+        stderr.print("Failed to initialize IMU: error code {}\n", .{result}) catch {};
+        return;
+    }
+    defer imu_cpp.imu_deinit();
 
     const adpd_thread = try std.Thread.spawn(.{}, read_adpd_data_loop, .{ &adpd4101_sensor, &interrupt_gpio });
     defer adpd_thread.join();
     const process_adpd_thread = try std.Thread.spawn(.{}, process_adpd_queue, .{});
     defer process_adpd_thread.join();
-    // const process_imu_thread = try std.Thread.spawn(.{}, process_imu_queue, .{});
-    // defer process_imu_thread.join();
+    const process_imu_thread = try std.Thread.spawn(.{}, process_imu_queue, .{});
+    defer process_imu_thread.join();
     const bluetooth_thread = try std.Thread.spawn(.{}, send_data, .{});
     defer bluetooth_thread.join();
-    // const imu_thread = try std.Thread.spawn(.{}, read_imu_data_loop, .{});
-    // defer imu_thread.join();
+    const imu_thread = try std.Thread.spawn(.{}, read_imu_data_loop, .{});
+    defer imu_thread.join();
 
     while (!should_exit.load(.seq_cst)) {
         std.Thread.sleep(100 * std.time.ns_per_ms);
