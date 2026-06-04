@@ -5,7 +5,11 @@ pub const BluetoothClassicOutput = struct {
     server_socket_fd: i32,
     client_socket_fd: ?i32,
     pub fn init() !BluetoothClassicOutput {
-        const server_socket_fd = try std.posix.socket(std.os.linux.AF.BLUETOOTH, std.os.linux.SOCK.STREAM, BTPROTO_RFCOMM);
+        const server_socket_fd = try std.posix.socket(
+            std.os.linux.AF.BLUETOOTH,
+            std.os.linux.SOCK.STREAM | std.os.linux.SOCK.NONBLOCK,
+            BTPROTO_RFCOMM,
+        );
 
         errdefer std.posix.close(server_socket_fd);
 

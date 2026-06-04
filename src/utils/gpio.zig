@@ -23,7 +23,10 @@ pub const GPIO = struct {
         const slice_buf = std.fmt.bufPrint(&write_buf, "{d}\n", .{pin_id}) catch {
             return error.FmtError;
         };
-        try export_file.writeAll(slice_buf);
+        export_file.writeAll(slice_buf) catch |err| switch (err) {
+            error.DeviceBusy => {},
+            else => |e| return e,
+        };
         defer export_file.close();
 
         // sleep for a short time to allow sysfs to create the gpio directory

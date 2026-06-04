@@ -40,27 +40,27 @@ fn handle_signal(signum: c_int) callconv(.c) void {
 }
 
 fn send_data() void {
-    var bt_output = bluetooth_output.BluetoothClassicOutput.init() catch |err| {
+    var bt_output: ?bluetooth_output.BluetoothClassicOutput = bluetooth_output.BluetoothClassicOutput.init() catch |err| blk: {
         stderr.print("Error initializing Bluetooth output: {}\n", .{err}) catch {};
-        return;
+        break :blk null;
     };
     var fbs_buffer: [512]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&fbs_buffer);
     const writer = fbs.writer();
-    defer bt_output.deinit() catch |err| {
-        stderr.print("Error deinitializing Bluetooth output: {}\n", .{err}) catch {};
+    defer if (bt_output) |*bt| {
+        bt.deinit() catch |err| {
+            stderr.print("Error deinitializing Bluetooth output: {}\n", .{err}) catch {};
+        };
     };
 
     while (!should_exit.load(.seq_cst)) {
-        if (bt_output.client_socket_fd == null) {
-            std.debug.print("Bluetooth server listening on channel 1, waiting for connection...\n", .{});
-            need_stop.store(true, .seq_cst);
-            bt_output.accept() catch |err| {
-                stderr.print("Error accepting Bluetooth connection: {}\n", .{err}) catch {};
-                return;
-            };
-            need_stop.store(false, .seq_cst);
-            std.debug.print("Bluetooth client connected, ready to send data.\n", .{});
+        if (bt_output) |*bt| {
+            if (bt.client_socket_fd == null) {
+                bt.accept() catch |err| switch (err) {
+                    error.WouldBlock => {},
+                    else => stderr.print("Error accepting Bluetooth connection: {}\n", .{err}) catch {},
+                };
+            }
         }
         // Snapshot the queue under lock, then release before doing blocking BT writes
         processed_data_queue_mutex.lock();
@@ -119,13 +119,24 @@ fn send_data() void {
                 continue;
             };
 
-            bt_output.write(fbs.getWritten()) catch |err| {
-                stderr.print("Error writing data to Bluetooth: {}\n", .{err}) catch {};
-                bt_output.closeClient() catch |close_err| {
-                    stderr.print("Error closing Bluetooth client socket: {}\n", .{close_err}) catch {};
-                };
-                break;
+            const line = fbs.getWritten();
+            stdout.writeAll(line) catch |err| {
+                stderr.print("Error writing data to stdout: {}\n", .{err}) catch {};
             };
+            stdout.flush() catch |err| {
+                stderr.print("Error flushing stdout: {}\n", .{err}) catch {};
+            };
+
+            if (bt_output) |*bt| {
+                if (bt.client_socket_fd != null) {
+                    bt.write(line) catch |err| {
+                        stderr.print("Error writing data to Bluetooth: {}\n", .{err}) catch {};
+                        bt.closeClient() catch |close_err| {
+                            stderr.print("Error closing Bluetooth client socket: {}\n", .{close_err}) catch {};
+                        };
+                    };
+                }
+            }
 
             _ = serial_number.fetchAdd(1, .seq_cst);
         }
