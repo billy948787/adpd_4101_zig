@@ -1,30 +1,45 @@
 const std = @import("std");
+const linux = std.os.linux;
+
+fn socketError(rc: usize) !void {
+    return switch (linux.errno(rc)) {
+        .SUCCESS => {},
+        .AGAIN => error.WouldBlock,
+        else => error.SocketError,
+    };
+}
+
+fn closeFd(fd: i32) void {
+    _ = linux.close(fd);
+}
 
 // use classic bt
 pub const BluetoothClassicOutput = struct {
     server_socket_fd: i32,
     client_socket_fd: ?i32,
     pub fn init() !BluetoothClassicOutput {
-        const server_socket_fd = try std.posix.socket(
-            std.os.linux.AF.BLUETOOTH,
-            std.os.linux.SOCK.STREAM | std.os.linux.SOCK.NONBLOCK,
+        const socket_rc = linux.socket(
+            linux.AF.BLUETOOTH,
+            linux.SOCK.STREAM | linux.SOCK.NONBLOCK,
             BTPROTO_RFCOMM,
         );
+        try socketError(socket_rc);
+        const server_socket_fd: i32 = @intCast(socket_rc);
 
-        errdefer std.posix.close(server_socket_fd);
+        errdefer closeFd(server_socket_fd);
 
         var loc_addr: sockaddr_rc = undefined;
 
-        loc_addr.rc_family = std.os.linux.AF.BLUETOOTH;
+        loc_addr.rc_family = linux.AF.BLUETOOTH;
         loc_addr.rc_bdaddr = bdaddr_t{ .b = [_]u8{0} ** 6 };
 
         const enable: i32 = 1;
         loc_addr.rc_channel = 1;
-        try std.posix.setsockopt(server_socket_fd, std.os.linux.SOL.SOCKET, std.os.linux.SO.REUSEADDR, std.mem.asBytes(&enable));
+        try socketError(linux.setsockopt(server_socket_fd, linux.SOL.SOCKET, linux.SO.REUSEADDR, std.mem.asBytes(&enable).ptr, @sizeOf(i32)));
 
-        try std.posix.bind(server_socket_fd, @ptrCast(&loc_addr), @sizeOf(sockaddr_rc));
+        try socketError(linux.bind(server_socket_fd, @ptrCast(&loc_addr), @sizeOf(sockaddr_rc)));
 
-        try std.posix.listen(server_socket_fd, 1);
+        try socketError(linux.listen(server_socket_fd, 1));
 
         return BluetoothClassicOutput{
             .server_socket_fd = server_socket_fd,
@@ -34,8 +49,10 @@ pub const BluetoothClassicOutput = struct {
 
     pub fn accept(self: *BluetoothClassicOutput) !void {
         var client_addr: sockaddr_rc = undefined;
-        var optlen: std.os.linux.socklen_t = @sizeOf(sockaddr_rc);
-        const client_fd = try std.posix.accept(self.server_socket_fd, @ptrCast(&client_addr), &optlen, 0);
+        var optlen: linux.socklen_t = @sizeOf(sockaddr_rc);
+        const accept_rc = linux.accept(self.server_socket_fd, @ptrCast(&client_addr), &optlen);
+        try socketError(accept_rc);
+        const client_fd: i32 = @intCast(accept_rc);
 
         self.client_socket_fd = client_fd;
     }
@@ -46,9 +63,9 @@ pub const BluetoothClassicOutput = struct {
                 .l_onoff = 1,
                 .l_linger = 0,
             };
-            try std.posix.setsockopt(client_fd, std.os.linux.SOL.SOCKET, std.os.linux.SO.LINGER, std.mem.asBytes(&linger_opt));
-            try std.posix.shutdown(client_fd, .both);
-            std.posix.close(client_fd);
+            try socketError(linux.setsockopt(client_fd, linux.SOL.SOCKET, linux.SO.LINGER, std.mem.asBytes(&linger_opt).ptr, @sizeOf(linger)));
+            try socketError(linux.shutdown(client_fd, linux.SHUT.RDWR));
+            closeFd(client_fd);
             self.client_socket_fd = null;
         }
     }
@@ -59,7 +76,12 @@ pub const BluetoothClassicOutput = struct {
         }
         var total_written: usize = 0;
         while (total_written < data.len) {
-            const written = try std.posix.write(self.client_socket_fd.?, data[total_written..]);
+            const rc = linux.write(self.client_socket_fd.?, data[total_written..].ptr, data.len - total_written);
+            switch (linux.errno(rc)) {
+                .SUCCESS => {},
+                else => return error.WriteFailed,
+            }
+            const written: usize = @intCast(rc);
             if (written == 0) {
                 return error.ConnectionClosed;
             }
@@ -69,11 +91,11 @@ pub const BluetoothClassicOutput = struct {
 
     pub fn deinit(self: *BluetoothClassicOutput) !void {
         if (self.client_socket_fd) |client_fd| {
-            try std.posix.shutdown(client_fd, .both);
-            std.posix.close(client_fd);
+            try socketError(linux.shutdown(client_fd, linux.SHUT.RDWR));
+            closeFd(client_fd);
         }
-        try std.posix.shutdown(self.server_socket_fd, .both);
-        std.posix.close(self.server_socket_fd);
+        try socketError(linux.shutdown(self.server_socket_fd, linux.SHUT.RDWR));
+        closeFd(self.server_socket_fd);
     }
 };
 

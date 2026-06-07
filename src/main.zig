@@ -7,34 +7,79 @@ const gpio = @import("utils/gpio.zig");
 const constant = @import("constant.zig");
 const bluetooth_output = @import("output/bluetooth.zig");
 
+const ns_per_ms: u64 = 1_000_000;
+const ns_per_s: u64 = 1_000_000_000;
+
+const SpinMutex = struct {
+    state: std.atomic.Mutex = .unlocked,
+
+    fn lock(self: *SpinMutex) void {
+        while (!self.state.tryLock()) {
+            std.atomic.spinLoopHint();
+        }
+    }
+
+    fn unlock(self: *SpinMutex) void {
+        self.state.unlock();
+    }
+};
+
 const imu_cpp = @cImport({
     @cInclude("imu.h");
 });
 
-var raw_adpd_queue_mutex = std.Thread.Mutex{};
-var raw_imu_queue_mutex = std.Thread.Mutex{};
-var processed_data_queue_mutex = std.Thread.Mutex{};
+var raw_adpd_queue_mutex = SpinMutex{};
+var raw_imu_queue_mutex = SpinMutex{};
+var processed_data_queue_mutex = SpinMutex{};
 
 var should_exit = std.atomic.Value(bool).init(false);
-var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
+var gpa = std.heap.DebugAllocator(.{ .thread_safe = true }){};
 var raw_adpd_data_queue: std.ArrayList(u8) = undefined;
 var raw_imu_data_queue: std.ArrayList(imu_cpp.ImuData) = undefined;
 const ppg_values_per_sample = adpd_config.time_slots.len * 2;
 var processed_data_queue: std.ArrayList(ProcessedData(ppg_values_per_sample)) = undefined;
 
-var stdout_buffer: [1024]u8 = undefined;
-var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-const stdout = &stdout_writer.interface;
+const FdWriter = struct {
+    fd: std.posix.fd_t,
 
-var stderr_buffer: [1024]u8 = undefined;
-var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-const stderr = &stderr_writer.interface;
+    fn writeAll(self: *FdWriter, bytes: []const u8) !void {
+        var written: usize = 0;
+        while (written < bytes.len) {
+            const rc = linux.write(self.fd, bytes[written..].ptr, bytes.len - written);
+            switch (linux.errno(rc)) {
+                .SUCCESS => {
+                    const n: usize = @intCast(rc);
+                    if (n == 0) return error.WriteFailed;
+                    written += n;
+                },
+                .INTR => {},
+                else => return error.WriteFailed,
+            }
+        }
+    }
+
+    fn print(self: *FdWriter, comptime fmt: []const u8, args: anytype) !void {
+        var buffer: [1024]u8 = undefined;
+        const text = try std.fmt.bufPrint(&buffer, fmt, args);
+        try self.writeAll(text);
+    }
+
+    fn flush(self: *FdWriter) !void {
+        _ = self;
+    }
+};
+
+var stdout_writer = FdWriter{ .fd = std.posix.STDOUT_FILENO };
+const stdout = &stdout_writer;
+
+var stderr_writer = FdWriter{ .fd = std.posix.STDERR_FILENO };
+const stderr = &stderr_writer;
 
 var need_stop = std.atomic.Value(bool).init(false);
 
 var serial_number = std.atomic.Value(u32).init(0);
 
-fn handle_signal(signum: c_int) callconv(.c) void {
+fn handle_signal(signum: linux.SIG) callconv(.c) void {
     _ = signum;
     should_exit.store(true, .seq_cst);
 }
@@ -45,8 +90,7 @@ fn send_data() void {
         break :blk null;
     };
     var fbs_buffer: [512]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&fbs_buffer);
-    const writer = fbs.writer();
+    var writer = std.Io.Writer.fixed(&fbs_buffer);
     defer if (bt_output) |*bt| {
         bt.deinit() catch |err| {
             stderr.print("Error deinitializing Bluetooth output: {}\n", .{err}) catch {};
@@ -67,7 +111,7 @@ fn send_data() void {
         const queue_len = processed_data_queue.items.len;
         if (queue_len == 0) {
             processed_data_queue_mutex.unlock();
-            std.Thread.sleep(2 * std.time.ns_per_ms);
+            sleepMs(2);
             continue;
         }
         // Copy items to a local buffer so we can release the lock quickly
@@ -86,7 +130,7 @@ fn send_data() void {
         processed_data_queue_mutex.unlock();
         // ── Now write to BT without holding the mutex ──
         for (local_queue.items) |item| {
-            fbs.reset();
+            writer = std.Io.Writer.fixed(&fbs_buffer);
             writer.print("{d},{s},{d},{d}", .{
                 serial_number.load(.seq_cst),
                 item.sensor_type,
@@ -119,7 +163,7 @@ fn send_data() void {
                 continue;
             };
 
-            const line = fbs.getWritten();
+            const line = writer.buffered();
             stdout.writeAll(line) catch |err| {
                 stderr.print("Error writing data to stdout: {}\n", .{err}) catch {};
             };
@@ -152,7 +196,7 @@ fn process_imu_queue() void {
                 is_enabled = false;
                 std.debug.print("Sensor disabled, pausing IMU data processing.\n", .{});
             }
-            std.Thread.sleep(100 * std.time.ns_per_ms);
+            sleepMs(100);
             continue;
         } else {
             if (!is_enabled) {
@@ -164,7 +208,7 @@ fn process_imu_queue() void {
         raw_imu_queue_mutex.lock();
         if (raw_imu_data_queue.items.len == 0) {
             raw_imu_queue_mutex.unlock();
-            std.Thread.sleep(2 * std.time.ns_per_ms);
+            sleepMs(2);
             continue;
         }
         var local_queue = std.ArrayList(ProcessedData(ppg_values_per_sample)).initCapacity(gpa.allocator(), raw_imu_data_queue.items.len) catch |err| {
@@ -266,7 +310,7 @@ fn process_adpd_queue() void {
                 time_initialized = false;
                 std.debug.print("Sensor disabled, pausing ADPD data processing.\n", .{});
             }
-            std.Thread.sleep(100 * std.time.ns_per_ms);
+            sleepMs(100);
             continue;
         } else {
             if (!is_enable) {
@@ -278,7 +322,7 @@ fn process_adpd_queue() void {
 
         if (raw_adpd_data_queue.items.len == 0) {
             raw_adpd_queue_mutex.unlock();
-            std.Thread.sleep(100 * std.time.ns_per_ms);
+            sleepMs(100);
             continue;
         }
 
@@ -317,7 +361,7 @@ fn process_adpd_queue() void {
             }
 
             if (!time_initialized) {
-                first_sample_time_us = std.time.microTimestamp();
+                first_sample_time_us = @intCast(monotonicUs());
                 time_initialized = true;
             }
 
@@ -401,7 +445,7 @@ fn read_imu_data_loop() void {
                 imu_cpp.imu_disable();
                 std.debug.print("Sensor disabled, pausing IMU data reading.\n", .{});
             }
-            std.Thread.sleep(100 * std.time.ns_per_ms);
+            sleepMs(100);
             continue;
         } else {
             if (!sensor_active) {
@@ -432,11 +476,11 @@ fn read_imu_data_loop() void {
                 raw_imu_queue_mutex.unlock();
             } else {
                 // FIFO empty — sleep to avoid busy-polling I2C
-                std.Thread.sleep(5 * std.time.ns_per_ms);
+                sleepMs(5);
             }
         } else {
             // No data at all — sleep before retrying
-            std.Thread.sleep(5 * std.time.ns_per_ms);
+            sleepMs(5);
         }
     }
 }
@@ -454,7 +498,7 @@ fn read_adpd_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpi
                     stderr.print("Error disabling ADPD4101 sensor: {}\n", .{err}) catch {};
                 };
             }
-            std.Thread.sleep(100 * std.time.ns_per_ms);
+            sleepMs(100);
             continue;
         } else {
             if (!sensor_active) {
@@ -552,7 +596,7 @@ pub fn main() !void {
     defer imu_thread.join();
 
     while (!should_exit.load(.seq_cst)) {
-        std.Thread.sleep(100 * std.time.ns_per_ms);
+        sleepMs(100);
     }
 }
 
@@ -577,9 +621,19 @@ pub fn ProcessedData(comptime num_timeslots: usize) type {
 }
 
 fn monotonicNs() u64 {
-    const ts = std.posix.clock_gettime(std.posix.CLOCK.MONOTONIC) catch return 0;
-    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s +
+    var ts: linux.timespec = undefined;
+    const rc = linux.clock_gettime(linux.CLOCK.MONOTONIC, &ts);
+    if (linux.errno(rc) != .SUCCESS) return 0;
+    return @as(u64, @intCast(ts.sec)) * ns_per_s +
         @as(u64, @intCast(ts.nsec));
+}
+
+fn sleepMs(ms: u64) void {
+    var req = linux.timespec{
+        .sec = @intCast(@divTrunc(ms * ns_per_ms, ns_per_s)),
+        .nsec = @intCast(@mod(ms * ns_per_ms, ns_per_s)),
+    };
+    while (linux.nanosleep(&req, &req) != 0) {}
 }
 
 fn monotonicUs() u64 {

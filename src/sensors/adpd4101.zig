@@ -1,5 +1,6 @@
 const i2c = @import("../utils/i2c.zig");
 const std = @import("std");
+const linux = std.os.linux;
 const regs = @import("adpd4101_reg.zig");
 
 pub const ADPD4101 = struct {
@@ -18,9 +19,8 @@ pub const ADPD4101 = struct {
         comptime gpio_id: u32,
         comptime fifo_status_sum_enable: bool,
     ) !ADPD4101 {
-        const file = try std.fs.cwd().openFile(i2c_bus_path, .{ .mode = .read_write });
-
-        const fd = file.handle;
+        const fd = try std.posix.openat(std.posix.AT.FDCWD, i2c_bus_path, .{ .ACCMODE = .RDWR }, 0);
+        errdefer _ = linux.close(fd);
 
         try reset_all(fd, dev_addr);
 
@@ -50,7 +50,7 @@ pub const ADPD4101 = struct {
         reset_all(self.fd, self.dev_addr) catch {
             // stderr.print("Failed to reset ADPD4101 during deinit: {}\n", .{err}) catch {};
         };
-        std.posix.close(self.fd);
+        _ = linux.close(self.fd);
     }
 
     pub fn read_raw(self: *ADPD4101) ![]const u8 {
